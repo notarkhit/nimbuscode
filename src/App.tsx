@@ -1,35 +1,34 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import Editor from "@monaco-editor/react"
+import Split from "react-split"
+import "./App.css"
 
 function App() {
-  const [count, setCount] = useState(0)
+	return (
+		<Split
+			direction="vertical"
+			sizes={[75, 25]}          // editor / console (%)
+			minSize={[200, 80]}       // px
+			gutterSize={6}
+			style={{ height: "100vh", width: "100vw" }}
+		>
+			{/* Editor pane */}
+			<div>
+				<Editor
+					height="100%"
+					defaultLanguage="typescript"
+					defaultValue={`function hello() {\n  console.log("Hello, Monaco");\n}`}
+					theme="vs-dark"
+				/>
+			</div>
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+			{/* Bottom console pane */}
+			<div className="console">
+				<div className="console-title">OUTPUT</div>
+				<pre>{"> program started\n> hello world"}</pre>
+			</div>
+		</Split>
+	)
 }
 
 export default App
+
