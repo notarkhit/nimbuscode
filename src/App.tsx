@@ -48,6 +48,7 @@ const runtimeByExtension: Record<string, Runtime> = {
 	".cc": "clangpp",
 	".cxx": "clangpp",
 	".php": "php-cgi",
+	".phtml": "php-cgi",
 	".sql": "sqlite",
 	".rb": "ruby",
 }
@@ -62,6 +63,7 @@ const languageByExtension: Record<string, string> = {
 	".cc": "C++",
 	".cxx": "C++",
 	".php": "PHP",
+	".phtml": "PHP",
 	".sql": "SQLite",
 	".rb": "Ruby",
 }
@@ -86,6 +88,7 @@ const fileIconByExtension: Record<string, LucideIcon> = {
 	".cc": FileCode2,
 	".cxx": FileCode2,
 	".php": FileCode2,
+	".phtml": FileCode2,
 	".sql": Database,
 	".rb": Gem,
 }
@@ -95,7 +98,7 @@ const supportedLanguages: Array<{ label: string; extensions: string[] }> = [
 	{ label: "Python", extensions: [".py"] },
 	{ label: "C", extensions: [".c"] },
 	{ label: "C++", extensions: [".cpp", ".cc", ".cxx"] },
-	{ label: "PHP", extensions: [".php"] },
+	{ label: "PHP", extensions: [".php", ".phtml"] },
 	{ label: "SQLite", extensions: [".sql"] },
 	{ label: "Ruby", extensions: [".rb"] },
 ]
@@ -110,27 +113,141 @@ const editorLanguageByExtension: Record<string, string> = {
 	".cc": "cpp",
 	".cxx": "cpp",
 	".php": "php",
+	".phtml": "php",
 	".sql": "sql",
 	".rb": "ruby",
 }
 
 const templateByExtension: Record<string, string> = {
-	".js": 'console.log("Hello from JavaScript")\n',
-	".py": 'print("Hello from Python")\n',
-	".c": `#include <stdio.h>\n\nint main(void) {\n  printf("Hello from C\\n");\n  return 0;\n}\n`,
-	".cpp": `#include <iostream>\n\nint main() {\n  std::cout << "Hello from C++" << std::endl;\n  return 0;\n}\n`,
-	".cc": `#include <iostream>\n\nint main() {\n  std::cout << "Hello from C++" << std::endl;\n  return 0;\n}\n`,
-	".cxx": `#include <iostream>\n\nint main() {\n  std::cout << "Hello from C++" << std::endl;\n  return 0;\n}\n`,
-	".php": `<?php\necho "Hello from PHP\\n";\n`,
-	".sql": "SELECT 'Hello from SQLite';\n",
-	".rb": 'puts "Hello from Ruby"\n',
+	".js": `const name = "friend"
+console.log("Hello, " + name + "!")
+`,
+	".mjs": `const name = "friend"
+console.log("Hello, " + name + "!")
+`,
+	".cjs": `const name = "friend"
+console.log("Hello, " + name + "!")
+`,
+	".py": `name = input("What's your name? ").strip()
+print(f"Hello, {name or 'friend'}!")
+`,
+	".c": `#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+  char name[128];
+
+  printf("What's your name? ");
+  if (fgets(name, sizeof(name), stdin) == NULL) {
+    printf("Hello, friend\\n");
+    return 0;
+  }
+
+  name[strcspn(name, "\\n")] = '\\0';
+  if (name[0] == '\\0') {
+    printf("Hello, friend\\n");
+  } else {
+    printf("Hello, %s!\\n", name);
+  }
+
+  return 0;
+}
+`,
+	".cpp": `#include <iostream>
+#include <string>
+
+int main() {
+  std::string name;
+  std::cout << "What's your name? ";
+  std::getline(std::cin, name);
+
+  if (name.empty()) {
+    name = "friend";
+  }
+
+  std::cout << "Hello, " << name << "!\\n";
+  return 0;
+}
+`,
+	".cc": `#include <iostream>
+#include <string>
+
+int main() {
+  std::string name;
+  std::cout << "What's your name? ";
+  std::getline(std::cin, name);
+
+  if (name.empty()) {
+    name = "friend";
+  }
+
+  std::cout << "Hello, " << name << "!\\n";
+  return 0;
+}
+`,
+	".cxx": `#include <iostream>
+#include <string>
+
+int main() {
+  std::string name;
+  std::cout << "What's your name? ";
+  std::getline(std::cin, name);
+
+  if (name.empty()) {
+    name = "friend";
+  }
+
+  std::cout << "Hello, " << name << "!\\n";
+  return 0;
+}
+`,
+	".php": `<?php
+echo "What's your name? ";
+$stream = fopen("php://stdin", "r");
+$name = $stream ? trim((string) fgets($stream)) : "";
+if (is_resource($stream)) {
+    fclose($stream);
+}
+
+if ($name === "") {
+    $name = "friend";
+}
+
+echo "Hello, {$name}!\\n";
+`,
+	".phtml": `<?php
+echo "What's your name? ";
+$stream = fopen("php://stdin", "r");
+$name = $stream ? trim((string) fgets($stream)) : "";
+if (is_resource($stream)) {
+    fclose($stream);
+}
+
+if ($name === "") {
+    $name = "friend";
+}
+
+echo "Hello, {$name}!\\n";
+`,
+	".sql": `-- On Run, NimbusCode prompts for a name and replaces {{name}}.
+WITH person(name) AS (VALUES ('{{name}}'))
+SELECT 'Hello, ' || name || '!' AS greeting
+FROM person;
+`,
+	".rb": `print "What's your name? "
+name = STDIN.gets&.strip.to_s
+name = "friend" if name.empty?
+puts "Hello, #{name}!"
+`,
 }
 
 const initialWorkspace: WorkspaceEntry[] = [
 	{
 		path: "/main.py",
 		kind: "file",
-		content: 'print("Hello from NimbusCode")\n',
+		content: `name = input("What's your name? ").strip()
+print(f"Hello, {name or 'friend'}!")
+`,
 		updatedAt: Date.now(),
 	},
 ]
@@ -443,6 +560,8 @@ const getBinaryURLFromFS = (fs: WASIFS, fsPath: string): string | null => {
 	return URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }))
 }
 
+const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''")
+
 /* ───────── App ───────── */
 
 function App() {
@@ -462,6 +581,7 @@ function App() {
 
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
+	const [consoleInput, setConsoleInput] = useState("")
 	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
 	const [isRunning, setIsRunning] = useState(false)
 
@@ -489,6 +609,10 @@ function App() {
 	const selectedEditorLanguage = selectedFile
 		? getEditorLanguageForPath(selectedFile.path)
 		: "plaintext"
+	const usesConsoleInput =
+		selectedRuntime === "clang" ||
+		selectedRuntime === "clangpp" ||
+		selectedRuntime === "sqlite"
 
 	const fitRunnoTerminal = () => {
 		const terminal = runnoRef.current?.shadowRoot?.querySelector(
@@ -512,8 +636,11 @@ function App() {
 	const runCompiledCode = async (
 		runtime: CompiledRuntime,
 		code: string,
+		stdinText: string,
 	): Promise<{ ok: boolean; error?: string }> => {
 		const terminal = getTerminalWriter()
+		const stdinLines = stdinText.split(/\r?\n/)
+		const stdin = () => `${stdinLines.shift() ?? ""}\n`
 		const entryPath = runtime === "clangpp" ? "/program.cpp" : "/program.c"
 		const commands = buildCompiledCommands(runtime, entryPath)
 		let fs: WASIFS = {
@@ -576,6 +703,7 @@ function App() {
 				args: [commands.run.binaryName, ...(commands.run.args ?? [])],
 				env: commands.run.env ?? {},
 				fs,
+				stdin,
 				stdout: (text) => {
 					terminal.write(text.replace(/\n/g, "\r\n"))
 				},
@@ -795,13 +923,6 @@ function App() {
 		const isFolder = !isFile && folderPathSet.has(selectedPath)
 		if (!isFile && !isFolder) return
 
-		const confirmation = window.confirm(
-			isFile
-				? `Delete file ${selectedPath}?`
-				: `Delete folder ${selectedPath} and all nested files?`,
-		)
-		if (!confirmation) return
-
 		const prefix = `${selectedPath}/`
 		const pathsToDelete = isFile
 			? [selectedPath]
@@ -904,14 +1025,28 @@ function App() {
 
 		try {
 			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
-				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
+				const result = await runCompiledCode(
+					selectedRuntime,
+					selectedFile.content,
+					consoleInput,
+				)
 				if (!result.ok) {
 					setRunError(result.error ?? `Failed to run ${selectedRuntime}.`)
 				}
 				return
 			}
 
-			await runnoRef.current.interactiveRunCode(selectedRuntime, selectedFile.content)
+			const codeToRun =
+				selectedRuntime === "sqlite"
+					? (() => {
+						if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
+						const firstLine = consoleInput.split(/\r?\n/)[0] ?? ""
+						const safeName = escapeSqlLiteral(firstLine.trim() || "friend")
+						return selectedFile.content.replaceAll("{{name}}", safeName)
+					})()
+					: selectedFile.content
+
+			await runnoRef.current.interactiveRunCode(selectedRuntime, codeToRun)
 		} catch (error) {
 			setRunError(String(error))
 		} finally {
@@ -1296,6 +1431,26 @@ function App() {
 								</button>
 							</div>
 							{runError && <div className="console-error">{runError}</div>}
+							{usesConsoleInput && (
+								<div className="console-input-block">
+									<label className="console-input-label" htmlFor="console-input">
+										{selectedRuntime === "sqlite"
+											? "SQL name input"
+											: "Program stdin (one line per read)"}
+									</label>
+									<textarea
+										id="console-input"
+										className="console-input"
+										value={consoleInput}
+										onChange={(event) => setConsoleInput(event.target.value)}
+										placeholder={
+											selectedRuntime === "sqlite"
+												? "Enter name (used for {{name}})"
+												: "Type input lines here"
+										}
+									/>
+								</div>
+							)}
 							<div className="console-terminal">
 								<runno-run
 									key={`${selectedRuntime ?? "python"}-${terminalKey}`}
