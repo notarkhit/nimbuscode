@@ -253,6 +253,9 @@ print(f"Hello, {name or 'friend'}!")
 ]
 
 const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
+const SETTINGS_TAB_ID = "__nimbus_settings__"
+
+type KeybindingMode = "default" | "vim" | "emacs"
 
 const applyTokyoNightMonacoTheme = (monaco: Monaco) => {
 	monaco.editor.defineTheme(TOKYO_NIGHT_THEME, {
@@ -490,6 +493,12 @@ const getEditorLanguageForPath = (path: string): string =>
 const getTemplateForPath = (path: string): string =>
 	templateByExtension[getExtension(path)] ?? ""
 
+const getTabLabel = (path: string): string =>
+	path === SETTINGS_TAB_ID ? "Settings" : getBaseName(path)
+
+const getTabIconForPath = (path: string): LucideIcon =>
+	path === SETTINGS_TAB_ID ? Settings : getFileIconForPath(path)
+
 const getParentFolders = (path: string): string[] => {
 	const folders: string[] = []
 	let current = getParentPath(path)
@@ -582,6 +591,10 @@ function App() {
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
 	const [consoleInput, setConsoleInput] = useState("")
+	const [settingsKeybinding, setSettingsKeybinding] =
+		useState<KeybindingMode>("default")
+	const [settingsCompletionsEnabled, setSettingsCompletionsEnabled] =
+		useState(true)
 	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
 	const [isRunning, setIsRunning] = useState(false)
 
@@ -601,7 +614,11 @@ function App() {
 		[folderPathSet],
 	)
 
+	const isSettingsTabActive = activeFilePath === SETTINGS_TAB_ID
 	const selectedFile = activeFilePath ? fileByPath.get(activeFilePath) ?? null : null
+	const selectedTabLabel = isSettingsTabActive
+		? "Settings"
+		: (selectedFile?.path ?? "Select a file")
 	const selectedRuntime = selectedFile ? getRuntimeForPath(selectedFile.path) : null
 	const selectedLanguageLabel = selectedFile
 		? getLanguageLabelForPath(selectedFile.path)
@@ -782,13 +799,19 @@ function App() {
 
 	useEffect(() => {
 		const existingFilePaths = new Set(fileEntries.map((entry) => entry.path))
-		const filteredTabs = openTabs.filter((path) => existingFilePaths.has(path))
+		const filteredTabs = openTabs.filter(
+			(path) => path === SETTINGS_TAB_ID || existingFilePaths.has(path),
+		)
 
 		if (filteredTabs.length !== openTabs.length) {
 			setOpenTabs(filteredTabs)
 		}
 
-		if (activeFilePath && !existingFilePaths.has(activeFilePath)) {
+		if (
+			activeFilePath &&
+			activeFilePath !== SETTINGS_TAB_ID &&
+			!existingFilePaths.has(activeFilePath)
+		) {
 			setActiveFilePath(filteredTabs[0] ?? null)
 		}
 	}, [fileEntries, openTabs, activeFilePath])
@@ -810,9 +833,21 @@ function App() {
 	}
 
 	const activateTab = (path: string) => {
+		if (path === SETTINGS_TAB_ID) {
+			setActiveFilePath(path)
+			return
+		}
+
 		if (!fileByPath.has(path)) return
 		setActiveFilePath(path)
 		setSelectedPath(path)
+	}
+
+	const openSettingsTab = () => {
+		setOpenTabs((prev) =>
+			prev.includes(SETTINGS_TAB_ID) ? prev : [...prev, SETTINGS_TAB_ID],
+		)
+		setActiveFilePath(SETTINGS_TAB_ID)
 	}
 
 	const closeTab = (path: string) => {
@@ -825,7 +860,9 @@ function App() {
 		if (activeFilePath === path) {
 			const fallbackPath = nextTabs[tabIndex] ?? nextTabs[tabIndex - 1] ?? null
 			setActiveFilePath(fallbackPath)
-			setSelectedPath(fallbackPath)
+			if (fallbackPath && fileByPath.has(fallbackPath)) {
+				setSelectedPath(fallbackPath)
+			}
 		}
 	}
 
@@ -1213,9 +1250,7 @@ function App() {
 				<div className="navbar-right">
 					<span className="active-file-pill">
 						<FileCode2 size={14} className="inline-icon" />
-						{selectedFile
-							? selectedFile.path
-							: "Select a file"}
+						{selectedTabLabel}
 					</span>
 					<div
 						className="language-menu"
@@ -1287,7 +1322,8 @@ function App() {
 						className="settings-btn"
 						type="button"
 						aria-label="Settings"
-						title="Settings (coming soon)"
+						title="Open settings"
+						onClick={openSettingsTab}
 					>
 						<Settings size={14} className="inline-icon" />
 					</button>
@@ -1356,12 +1392,14 @@ function App() {
 						className="editor-area"
 					>
 						<div className="editor-pane">
-							<div className="editor-tabs" role="tablist" aria-label="Open files">
-								{openTabs.map((path) => {
-									const isActive = activeFilePath === path
+								<div className="editor-tabs" role="tablist" aria-label="Open files">
+									{openTabs.map((path) => {
+										const isActive = activeFilePath === path
+										const tabLabel = getTabLabel(path)
+										const TabIcon = getTabIconForPath(path)
 
-									return (
-										<div
+										return (
+											<div
 											key={path}
 											className={`editor-tab ${isActive ? "active" : ""}`}
 										>
@@ -1370,16 +1408,13 @@ function App() {
 												className="editor-tab-button"
 												onClick={() => activateTab(path)}
 											>
-												{(() => {
-													const FileIcon = getFileIconForPath(path)
-													return <FileIcon size={14} className="inline-icon" />
-												})()}
-												{getBaseName(path)}
+												<TabIcon size={14} className="inline-icon" />
+												{tabLabel}
 											</button>
 											<button
 												type="button"
 												className="editor-tab-close"
-												aria-label={`Close ${getBaseName(path)}`}
+												aria-label={`Close ${tabLabel}`}
 												onClick={(event) => {
 													event.stopPropagation()
 													closeTab(path)
@@ -1392,23 +1427,77 @@ function App() {
 								})}
 							</div>
 							<div className="editor-content">
-							<Editor
-								path={selectedFile?.path}
-								height="100%"
-								theme={TOKYO_NIGHT_THEME}
-								beforeMount={applyTokyoNightMonacoTheme}
-								language={selectedEditorLanguage}
-								value={selectedFile?.content ?? ""}
-								onChange={onEditorChange}
-								options={{
-									readOnly: !selectedFile,
-									fontFamily:
-										'"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
-										fontLigatures: true,
-									}}
-								/>
+								{isSettingsTabActive ? (
+									<div className="settings-panel">
+										<div className="settings-title">Editor Settings</div>
+										<p className="settings-subtitle">
+											These controls are placeholders for now and do not change
+											editor behavior yet.
+										</p>
+										<div className="settings-group">
+											<label className="settings-label" htmlFor="keybinding-mode">
+												Keybindings
+											</label>
+											<select
+												id="keybinding-mode"
+												className="settings-select"
+												value={settingsKeybinding}
+												onChange={(event) => {
+													setSettingsKeybinding(
+														event.target.value as KeybindingMode,
+													)
+												}}
+											>
+												<option value="default">Default</option>
+												<option value="vim">Vim</option>
+												<option value="emacs">Emacs</option>
+											</select>
+										</div>
+										<div className="settings-group">
+											<div className="settings-toggle-row">
+												<span className="settings-label">Completions</span>
+												<label
+													className="settings-switch"
+													htmlFor="completions-toggle"
+												>
+													<input
+														id="completions-toggle"
+														type="checkbox"
+														className="settings-switch-input"
+														checked={settingsCompletionsEnabled}
+														onChange={(event) => {
+															setSettingsCompletionsEnabled(event.target.checked)
+														}}
+													/>
+													<span
+														className="settings-switch-track"
+														aria-hidden="true"
+													>
+														<span className="settings-switch-thumb" />
+													</span>
+												</label>
+											</div>
+										</div>
+									</div>
+								) : (
+									<Editor
+										path={selectedFile?.path}
+										height="100%"
+										theme={TOKYO_NIGHT_THEME}
+										beforeMount={applyTokyoNightMonacoTheme}
+										language={selectedEditorLanguage}
+										value={selectedFile?.content ?? ""}
+										onChange={onEditorChange}
+										options={{
+											readOnly: !selectedFile,
+											fontFamily:
+												'"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
+											fontLigatures: true,
+										}}
+									/>
+								)}
 							</div>
-							{!selectedFile && (
+							{!selectedFile && !isSettingsTabActive && (
 								<div className="editor-empty">
 									Select a file in the explorer to open it in a tab.
 								</div>
