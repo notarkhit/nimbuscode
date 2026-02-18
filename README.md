@@ -1,182 +1,86 @@
-# nimbusCode: A cloud based code runner
+# NimbusCode
 
-NimbusCode is a browser-based, WebAssembly-powered code runner designed to execute multiple programming languages entirely on the frontend.
+NimbusCode is a browser IDE for learning and experimenting with code, without local compiler/runtime setup.
 
-It provides an IDE-like experience using Monaco Editor, a resizable output panel, and language runtimes powered by WASM or sandboxed JavaScript execution — with no backend required.
+Everything runs on the frontend through WebAssembly-backed runtimes. There is no backend service, no server-side execution, and no API layer required to use the app.
 
----
+## Why this project
 
-## Overview
+Learning programming is often blocked by installation and toolchain setup. NimbusCode removes that friction:
 
-NimbusCode is built around a simple idea:
+- write code in the browser
+- run it directly in the browser
+- keep files locally in browser storage
+- avoid backend infrastructure entirely
 
-> Run real programming languages directly in the browser using WebAssembly and controlled execution environments.
+## How it works
 
-The project focuses on:
-- Multi-language support
-- Frontend-only execution
-- Runtime isolation
-- Deterministic output capture
-- Clean IDE-style UI
+1. You create/open files in the left explorer.
+2. Files open in editor tabs (Monaco).
+3. Runtime is detected from the file extension.
+4. Code executes in browser runtimes powered by WebAssembly.
+5. Output appears in the bottom terminal panel (including interactive input when supported).
 
----
+For C/C++, NimbusCode compiles source to a WASM binary in-browser, then runs that binary in a WASI environment.
 
-## Core Features
+## Supported languages and file mapping
 
-- Monaco Editor integration
-- Multi-language execution
-- WASM-based runtime support
-- JavaScript sandbox execution
-- Lazy runtime loading
-- Resizable editor/output layout
-- Terminal-style output buffer
-- No backend required
-- No server-side code execution
+| Language | Extensions | Runtime mapping |
+| --- | --- | --- |
+| JavaScript | `.js`, `.mjs`, `.cjs` | `quickjs` |
+| Python | `.py` | `python` |
+| C | `.c` | `clang` |
+| C++ | `.cpp`, `.cc`, `.cxx` | `clangpp` |
+| PHP | `.php` | `php-cgi` |
+| SQLite | `.sql` | `sqlite` |
+| Ruby | `.rb` | `ruby` |
 
----
+## Current UI/features
 
-## Supported Languages
+- VS Code-style split layout:
+  - left explorer
+  - editor area (tabbed)
+  - output console
+- File + folder create/delete from explorer
+- Inline file/folder creation input (no browser prompt)
+- Monaco editor with Tokyo Night theming
+- Language indicator + supported-languages dropdown
+- Run button with runtime status
+- Output terminal with clear action
+- Settings button placeholder (non-functional)
+- Icons via `lucide-react`
 
-NimbusCode is designed as a **WASM-based polyglot runner**.
+## Persistence model
 
-Currently supported:
+Workspace files/folders are stored in IndexedDB:
 
-- **JavaScript**
-  - Executed via `new Function()` in a controlled sandbox.
-  - Console methods are intercepted and routed to the output panel.
+- DB name: `nimbuscode-workspace`
+- Object store: `entries`
+- Keys: file/folder `path`
 
-- **Python**
-  - Executed using **Pyodide** (Python compiled to WebAssembly).
-  - Runtime loaded lazily from CDN.
-  - `stdout` and `stderr` captured via `StringIO`.
+This means your workspace stays in your browser between reloads, without any backend database.
 
-- **Lua**
-  - Executed via WebAssembly (or pure JS runtime depending on configuration).
-  - Output captured by overriding `print`.
+## Tech stack
 
-The architecture allows additional WASM-based languages to be plugged in with minimal changes.
+- Bun
+- Vite + React + TypeScript
+- Monaco Editor (`@monaco-editor/react`)
+- Split panes (`react-split`)
+- WebAssembly runtimes + WASI execution (`@runno/runtime`, `@runno/wasi`)
+- IndexedDB (browser local storage)
 
----
+## No backend required
 
-## Architecture
+NimbusCode is frontend-only by design:
 
-NimbusCode runs entirely in the browser.
+- no auth server
+- no API server
+- no code execution server
+- no cloud database
 
-### Execution Flow
+You can host the built static files on any static hosting platform.
 
-```
-Monaco Editor
-      ↓
-User clicks Run
-      ↓
-Language dispatcher
-      ↓
-Selected runtime executes code
-      ↓
-Captured output
-      ↓
-Output panel re-renders
-```
-
----
-
-## Execution Model
-
-### JavaScript
-
-- Uses `new Function()` to sandbox execution.
-- Injects a proxy `console` object.
-- Captures:
-  - log
-  - error
-  - warn
-  - table (if implemented)
-- Prevents global pollution.
-
----
-
-### Python (Pyodide)
-
-- Loads Pyodide lazily on first execution.
-- Redirects:
-  - `sys.stdout`
-  - `sys.stderr`
-- Executes code asynchronously.
-- Extracts buffered output from `StringIO`.
-
----
-
-### Lua (WASM Runtime)
-
-- Loads runtime dynamically.
-- Creates isolated execution environment per run.
-- Overrides `print()` to capture output.
-- Returns deterministic execution results.
-
----
-
-## UI Structure
-
-```
-App Root
-├── Navbar
-│   ├── Logo (NimbusCode)
-│   ├── Language Dropdown
-│   ├── Run Button
-│   └── Settings Placeholder
-│
-└── Split Layout (react-split)
-    ├── Monaco Editor
-    └── Output Console
-```
-
-### Output Panel
-
-- Append-only
-- Terminal-style formatting
-- Preserves execution history
-- Scrollable
-
----
-
-## Tech Stack
-
-- React (Vite + TypeScript)
-- Monaco Editor
-- react-split
-- Pyodide (WASM Python runtime)
-- Lua WASM runtime / JS runtime
-- Bun (package manager)
-
----
-
-## Design Principles
-
-- Frontend-only execution
-- Runtime isolation
-- Lazy initialization of heavy runtimes
-- No uncontrolled global state
-- Deterministic output capture
-- Minimal dependency surface
-- IDE-style UX without backend complexity
-
----
-
-## Why WASM?
-
-WebAssembly enables:
-
-- Running compiled languages in the browser
-- Deterministic execution
-- Sandboxed runtime environments
-- No server-side execution risk
-- Portable language runtimes
-
-NimbusCode uses WASM where appropriate to support real language runtimes without backend infrastructure.
-
----
-
-## Running the Project
+## Development
 
 Install dependencies:
 
@@ -190,34 +94,26 @@ Start dev server:
 bun run dev
 ```
 
-Open the local Vite URL.
+Lint:
 
----
+```bash
+bun run lint
+```
 
-## Limitations
+Build:
 
-- All execution runs on the main thread (no worker isolation yet)
-- Infinite loops will freeze the UI
-- No filesystem access
-- No external module imports
-- Runtime initialization delay on first execution
-- Not designed for untrusted multi-user environments
+```bash
+bun run build
+```
 
----
+Preview production build:
 
-## Roadmap
+```bash
+bun run preview
+```
 
-- Worker-based execution isolation
-- Execution timeouts
-- Kill/interrupt support
-- Additional WASM language integrations
-- Plugin-based runtime architecture
-- Persistent file system abstraction
-- Tabbed terminal output (stdout / stderr / problems)
+## Notes and limitations
 
----
-
-## Status
-
-NimbusCode is a stable, frontend-only WASM-based code runner prototype with a modular foundation for expanding into a full browser IDE.
-
+- Initial runtime startup can take longer on first run (assets/runtime bootstrapping).
+- Infinite loops can still lock the browser tab.
+- Execution is local to the browser context; this is not a multi-user remote execution platform.
