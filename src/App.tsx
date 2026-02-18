@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Editor, { type Monaco } from "@monaco-editor/react"
-import type { RunElement, Runtime } from "@runno/runtime"
+import { fetchWASIFS, type RunElement, type Runtime } from "@runno/runtime"
+import { WASI, type WASIFile, type WASIFS } from "@runno/wasi"
 import Split from "react-split"
 import {
 	deleteWorkspacePaths,
@@ -139,6 +140,143 @@ type PendingCreation = {
 	value: string
 }
 
+type CompiledRuntime = "clang" | "clangpp"
+
+type BinaryCommand = {
+	binaryURL: string
+	binaryName: string
+	args?: string[]
+	env?: Record<string, string>
+	baseFSURL?: string
+}
+
+const RUNNO_LANG_BASE_URL = "https://runno.dev/langs"
+
+const buildCompiledCommands = (
+	runtime: CompiledRuntime,
+	entryPath: string,
+): {
+	prepare: BinaryCommand[]
+	run: { fsPath: string; binaryName: string; args?: string[]; env?: Record<string, string> }
+} => {
+	if (runtime === "clangpp") {
+		return {
+			prepare: [
+				{
+					binaryURL: `${RUNNO_LANG_BASE_URL}/clang.wasm`,
+					binaryName: "clang",
+					args: [
+						"-cc1",
+						"-emit-obj",
+						"-disable-free",
+						"-isysroot",
+						"/sys",
+						"-internal-isystem",
+						"/sys/include/c++/v1",
+						"-internal-isystem",
+						"/sys/include",
+						"-internal-isystem",
+						"/sys/lib/clang/8.0.1/include",
+						"-ferror-limit",
+						"8",
+						"-fmessage-length",
+						"80",
+						"-fcolor-diagnostics",
+						"-O2",
+						"-o",
+						"/program.o",
+						"-x",
+						"c++",
+						entryPath,
+					],
+					env: {},
+					baseFSURL: `${RUNNO_LANG_BASE_URL}/clang-fs.tar.gz`,
+				},
+				{
+					binaryURL: `${RUNNO_LANG_BASE_URL}/wasm-ld.wasm`,
+					binaryName: "wasm-ld",
+					args: [
+						"--no-threads",
+						"--export-dynamic",
+						"-z",
+						"stack-size=1048576",
+						"-L/sys/lib/wasm32-wasi",
+						"/sys/lib/wasm32-wasi/crt1.o",
+						"/program.o",
+						"-lc",
+						"-lc++",
+						"-lc++abi",
+						"-o",
+						"/program.wasm",
+					],
+					env: {},
+				},
+			],
+			run: {
+				fsPath: "/program.wasm",
+				binaryName: "program",
+				args: [],
+				env: {},
+			},
+		}
+	}
+
+	return {
+		prepare: [
+			{
+				binaryURL: `${RUNNO_LANG_BASE_URL}/clang.wasm`,
+				binaryName: "clang",
+				args: [
+					"-cc1",
+					"-triple",
+					"wasm32-unknown-wasi",
+					"-isysroot",
+					"/sys",
+					"-internal-isystem",
+					"/sys/include",
+					"-internal-isystem",
+					"/sys/lib/clang/8.0.1/include",
+					"-ferror-limit",
+					"8",
+					"-fmessage-length",
+					"80",
+					"-fcolor-diagnostics",
+					"-O2",
+					"-emit-obj",
+					"-o",
+					"/program.o",
+					entryPath,
+				],
+				env: {},
+				baseFSURL: `${RUNNO_LANG_BASE_URL}/clang-fs.tar.gz`,
+			},
+			{
+				binaryURL: `${RUNNO_LANG_BASE_URL}/wasm-ld.wasm`,
+				binaryName: "wasm-ld",
+				args: [
+					"--no-threads",
+					"--export-dynamic",
+					"-z",
+					"stack-size=1048576",
+					"-L/sys/lib/wasm32-wasi",
+					"/sys/lib/wasm32-wasi/crt1.o",
+					"/program.o",
+					"-lc",
+					"-o",
+					"/program.wasm",
+				],
+				env: {},
+			},
+		],
+		run: {
+			fsPath: "/program.wasm",
+			binaryName: "program",
+			args: [],
+			env: {},
+		},
+	}
+}
+
 /* ───────── Helpers ───────── */
 
 const normalizePathInput = (rawPath: string): string =>
@@ -236,6 +374,25 @@ const buildFolderPathSet = (entries: WorkspaceEntry[]): Set<string> => {
 	return folders
 }
 
+const createStringFile = (path: string, content: string): WASIFile => ({
+	path,
+	mode: "string",
+	content,
+	timestamps: {
+		access: new Date(),
+		modification: new Date(),
+		change: new Date(),
+	},
+})
+
+const getBinaryURLFromFS = (fs: WASIFS, fsPath: string): string | null => {
+	const file = fs[fsPath]
+	if (!file || file.mode !== "binary") return null
+	const wasmBytes = new Uint8Array(file.content.byteLength)
+	wasmBytes.set(file.content)
+	return URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }))
+}
+
 /* ───────── App ───────── */
 
 function App() {
@@ -289,6 +446,107 @@ function App() {
 		) as (HTMLElement & { onResize?: () => void }) | null
 
 		terminal?.onResize?.()
+	}
+
+	const getTerminalWriter = () => {
+		const terminalElement = runnoRef.current?.shadowRoot?.querySelector(
+			"runno-terminal",
+		) as (HTMLElement & { terminal?: { clear: () => void; write: (text: string) => void } }) | null
+
+		return {
+			clear: () => terminalElement?.terminal?.clear(),
+			write: (text: string) => terminalElement?.terminal?.write(text),
+		}
+	}
+
+	const runCompiledCode = async (
+		runtime: CompiledRuntime,
+		code: string,
+	): Promise<{ ok: boolean; error?: string }> => {
+		const terminal = getTerminalWriter()
+		const entryPath = runtime === "clangpp" ? "/program.cpp" : "/program.c"
+		const commands = buildCompiledCommands(runtime, entryPath)
+		let fs: WASIFS = {
+			[entryPath]: createStringFile(entryPath, code),
+		}
+		let stderrBuffer = ""
+
+		terminal.clear()
+		terminal.write("Preparing environment...\r\n")
+
+		for (const command of commands.prepare) {
+			try {
+				if (command.baseFSURL) {
+					const baseFS = await fetchWASIFS(command.baseFSURL)
+					fs = { ...fs, ...baseFS }
+				}
+
+				const result = await WASI.start(fetch(command.binaryURL), {
+					args: [command.binaryName, ...(command.args ?? [])],
+					env: command.env ?? {},
+					fs,
+					stdout: (text) => {
+						terminal.write(text.replace(/\n/g, "\r\n"))
+					},
+					stderr: (text) => {
+						stderrBuffer += text
+						terminal.write(text.replace(/\n/g, "\r\n"))
+					},
+				})
+
+				fs = result.fs
+
+				if (result.exitCode !== 0) {
+					return {
+						ok: false,
+						error:
+							stderrBuffer.trim() ||
+							`Compile step failed with exit code ${result.exitCode}.`,
+					}
+				}
+			} catch (error) {
+				return {
+					ok: false,
+					error: `Failed to prepare ${runtime}: ${String(error)}`,
+				}
+			}
+		}
+
+		const binaryURL = getBinaryURLFromFS(fs, commands.run.fsPath)
+		if (!binaryURL) {
+			return {
+				ok: false,
+				error: "Build did not produce /program.wasm.",
+			}
+		}
+
+		try {
+			terminal.write("\r\nRunning program...\r\n")
+			const result = await WASI.start(fetch(binaryURL), {
+				args: [commands.run.binaryName, ...(commands.run.args ?? [])],
+				env: commands.run.env ?? {},
+				fs,
+				stdout: (text) => {
+					terminal.write(text.replace(/\n/g, "\r\n"))
+				},
+				stderr: (text) => {
+					terminal.write(text.replace(/\n/g, "\r\n"))
+				},
+			})
+
+			if (result.exitCode !== 0) {
+				terminal.write(`\r\n[exit code: ${result.exitCode}]\r\n`)
+			}
+		} catch (error) {
+			return {
+				ok: false,
+				error: `Runtime failed for ${runtime}: ${String(error)}`,
+			}
+		} finally {
+			URL.revokeObjectURL(binaryURL)
+		}
+
+		return { ok: true }
 	}
 
 	useEffect(() => {
@@ -595,6 +853,14 @@ function App() {
 		fitRunnoTerminal()
 
 		try {
+			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
+				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
+				if (!result.ok) {
+					setRunError(result.error ?? `Failed to run ${selectedRuntime}.`)
+				}
+				return
+			}
+
 			await runnoRef.current.interactiveRunCode(selectedRuntime, selectedFile.content)
 		} catch (error) {
 			setRunError(String(error))
