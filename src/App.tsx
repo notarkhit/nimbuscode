@@ -2,6 +2,29 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Editor, { type Monaco } from "@monaco-editor/react"
 import { fetchWASIFS, type RunElement, type Runtime } from "@runno/runtime"
 import { WASI, type WASIFile, type WASIFS } from "@runno/wasi"
+import {
+	Cloud,
+	ChevronDown,
+	Database,
+	Eraser,
+	File,
+	FileCode2,
+	FileJson2,
+	FilePlus2,
+	Folder,
+	FolderOpen,
+	FolderPlus,
+	FolderTree,
+	Gem,
+	Languages,
+	LoaderCircle,
+	Play,
+	Settings,
+	TerminalSquare,
+	Trash2,
+	X,
+	type LucideIcon,
+} from "lucide-react"
 import Split from "react-split"
 import {
 	deleteWorkspacePaths,
@@ -41,6 +64,30 @@ const languageByExtension: Record<string, string> = {
 	".php": "PHP",
 	".sql": "SQLite",
 	".rb": "Ruby",
+}
+
+const languageIconByLabel: Record<string, LucideIcon> = {
+	JavaScript: FileCode2,
+	Python: FileCode2,
+	C: FileCode2,
+	"C++": FileCode2,
+	PHP: FileCode2,
+	SQLite: Database,
+	Ruby: Gem,
+}
+
+const fileIconByExtension: Record<string, LucideIcon> = {
+	".js": FileJson2,
+	".mjs": FileJson2,
+	".cjs": FileJson2,
+	".py": FileCode2,
+	".c": FileCode2,
+	".cpp": FileCode2,
+	".cc": FileCode2,
+	".cxx": FileCode2,
+	".php": FileCode2,
+	".sql": Database,
+	".rb": Gem,
 }
 
 const supportedLanguages: Array<{ label: string; extensions: string[] }> = [
@@ -310,6 +357,9 @@ const getExtension = (path: string): string => {
 	if (dotIndex < 0) return ""
 	return baseName.slice(dotIndex).toLowerCase()
 }
+
+const getFileIconForPath = (path: string): LucideIcon =>
+	fileIconByExtension[getExtension(path)] ?? File
 
 const getRuntimeForPath = (path: string): Runtime | null =>
 	runtimeByExtension[getExtension(path)] ?? null
@@ -917,13 +967,18 @@ function App() {
 								>
 									{expanded ? "▾" : "▸"}
 								</button>
-								<button
-									type="button"
-									className="tree-entry folder"
-									onClick={() => selectPath(folderPath)}
-								>
-									{getBaseName(folderPath)}
-								</button>
+							<button
+								type="button"
+								className="tree-entry folder"
+								onClick={() => selectPath(folderPath)}
+							>
+								{expanded ? (
+									<FolderOpen size={14} className="inline-icon tree-icon" />
+								) : (
+									<Folder size={14} className="inline-icon tree-icon" />
+								)}
+								{getBaseName(folderPath)}
+							</button>
 							</div>
 							{expanded ? renderTree(folderPath, depth + 1) : null}
 						</div>
@@ -936,6 +991,11 @@ function App() {
 						style={{ paddingLeft: `${8 + depth * 14}px` }}
 					>
 						<span className="tree-spacer" aria-hidden="true" />
+						{pendingCreation?.kind === "folder" ? (
+							<FolderPlus size={14} className="inline-icon tree-icon" />
+						) : (
+							<FilePlus2 size={14} className="inline-icon tree-icon" />
+						)}
 						<input
 							className="tree-create-input"
 							value={pendingCreation?.value ?? ""}
@@ -990,6 +1050,10 @@ function App() {
 								className="tree-entry file"
 								onClick={() => selectPath(fileEntry.path)}
 							>
+								{(() => {
+									const FileIcon = getFileIconForPath(fileEntry.path)
+									return <FileIcon size={14} className="inline-icon tree-icon" />
+								})()}
 								{getBaseName(fileEntry.path)}
 							</button>
 						</div>
@@ -1005,11 +1069,15 @@ function App() {
 		<div className="app-root">
 			<header className="navbar">
 				<div className="navbar-left">
-					<span className="logo">NimbusCode</span>
+					<span className="logo">
+						<Cloud size={14} className="logo-icon" />
+						NimbusCode
+					</span>
 				</div>
 
 				<div className="navbar-right">
 					<span className="active-file-pill">
+						<FileCode2 size={14} className="inline-icon" />
 						{selectedFile
 							? selectedFile.path
 							: "Select a file"}
@@ -1031,7 +1099,13 @@ function App() {
 								setShowSupportedLanguages((prev) => !prev)
 							}}
 						>
+							{(() => {
+								const LanguageIcon =
+									languageIconByLabel[selectedLanguageLabel] ?? Languages
+								return <LanguageIcon size={14} className="inline-icon" />
+							})()}
 							{selectedLanguageLabel}
+							<ChevronDown size={14} className="inline-icon" />
 						</button>
 						{showSupportedLanguages && (
 							<div className="language-menu-popup">
@@ -1039,7 +1113,19 @@ function App() {
 								<ul className="language-menu-list">
 									{supportedLanguages.map((language) => (
 										<li key={language.label} className="language-menu-item">
-											<span>{language.label}</span>
+											<span className="language-name">
+												{(() => {
+													const LanguageIcon =
+														languageIconByLabel[language.label] ?? FileCode2
+													return (
+														<LanguageIcon
+															size={14}
+															className="inline-icon"
+														/>
+													)
+												})()}
+												{language.label}
+											</span>
 											<span>{language.extensions.join(", ")}</span>
 										</li>
 									))}
@@ -1055,7 +1141,20 @@ function App() {
 							isRunning || !isWorkspaceReady || !selectedFile || !selectedRuntime
 						}
 					>
+						{isRunning ? (
+							<LoaderCircle size={14} className="inline-icon spin" />
+						) : (
+							<Play size={14} className="inline-icon" />
+						)}
 						{isRunning ? "Running..." : "▶ Run"}
+					</button>
+					<button
+						className="settings-btn"
+						type="button"
+						aria-label="Settings"
+						title="Settings (coming soon)"
+					>
+						<Settings size={14} className="inline-icon" />
 					</button>
 				</div>
 			</header>
@@ -1069,7 +1168,10 @@ function App() {
 			>
 				<aside className="explorer-pane">
 					<div className="explorer-header">
-						<span className="explorer-title">EXPLORER</span>
+						<span className="explorer-title">
+							<FolderTree size={14} className="inline-icon" />
+							EXPLORER
+						</span>
 						<div className="explorer-actions">
 							<button
 								type="button"
@@ -1078,6 +1180,7 @@ function App() {
 									beginCreateEntry("file")
 								}}
 							>
+								<FilePlus2 size={14} className="inline-icon" />
 								+File
 							</button>
 							<button
@@ -1087,6 +1190,7 @@ function App() {
 									beginCreateEntry("folder")
 								}}
 							>
+								<FolderPlus size={14} className="inline-icon" />
 								+Folder
 							</button>
 							<button
@@ -1097,6 +1201,7 @@ function App() {
 								}}
 								disabled={!selectedPath || selectedPath === "/"}
 							>
+								<Trash2 size={14} className="inline-icon" />
 								Delete
 							</button>
 						</div>
@@ -1130,6 +1235,10 @@ function App() {
 												className="editor-tab-button"
 												onClick={() => activateTab(path)}
 											>
+												{(() => {
+													const FileIcon = getFileIconForPath(path)
+													return <FileIcon size={14} className="inline-icon" />
+												})()}
 												{getBaseName(path)}
 											</button>
 											<button
@@ -1141,7 +1250,7 @@ function App() {
 													closeTab(path)
 												}}
 											>
-												×
+												<X size={13} className="inline-icon" />
 											</button>
 										</div>
 									)
@@ -1173,12 +1282,16 @@ function App() {
 
 						<div className="console">
 							<div className="console-title-row">
-								<div className="console-title">OUTPUT</div>
+								<div className="console-title">
+									<TerminalSquare size={14} className="inline-icon" />
+									OUTPUT
+								</div>
 								<button
 									className="console-clear-btn"
 									type="button"
 									onClick={clearTerminal}
 								>
+									<Eraser size={14} className="inline-icon" />
 									Clear
 								</button>
 							</div>
