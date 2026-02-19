@@ -937,6 +937,11 @@ function App() {
 				fs = result.fs
 
 				if (result.exitCode !== 0) {
+					if (!stderrBuffer.trim()) {
+						terminal.write(
+							`\r\n[Error] Compile step failed with exit code ${result.exitCode}.\r\n`,
+						)
+					}
 					return {
 						ok: false,
 						error:
@@ -945,6 +950,7 @@ function App() {
 					}
 				}
 			} catch (error) {
+				terminal.write(`\r\n[Error] Failed to prepare ${runtime}: ${String(error)}\r\n`)
 				return {
 					ok: false,
 					error: `Failed to prepare ${runtime}: ${String(error)}`,
@@ -954,6 +960,7 @@ function App() {
 
 		const binaryURL = getBinaryURLFromFS(fs, commands.run.fsPath)
 		if (!binaryURL) {
+			terminal.write("\r\n[Error] Build did not produce /program.wasm.\r\n")
 			return {
 				ok: false,
 				error: "Build did not produce /program.wasm.",
@@ -978,6 +985,9 @@ function App() {
 			)
 
 			if (result.resultType === "crash") {
+				terminal.write(
+					`\r\n[Error] ${result.error?.message ?? `Runtime failed for ${runtime}.`}\r\n`,
+				)
 				return {
 					ok: false,
 					error: result.error?.message ?? `Runtime failed for ${runtime}.`,
@@ -988,6 +998,7 @@ function App() {
 				terminal.write(`\r\n[exit code: ${result.exitCode}]\r\n`)
 			}
 		} catch (error) {
+			terminal.write(`\r\n[Error] Runtime failed for ${runtime}: ${String(error)}\r\n`)
 			return {
 				ok: false,
 				error: `Runtime failed for ${runtime}: ${String(error)}`,
@@ -1006,6 +1017,14 @@ function App() {
 
 		return () => cancelAnimationFrame(frame)
 	}, [selectedRuntime, terminalKey])
+
+	useEffect(() => {
+		if (!runError) return
+
+		const terminal = getTerminalWriter()
+		terminal.write(`\r\n[Error] ${runError}\r\n`)
+		setRunError(null)
+	}, [runError])
 
 	useEffect(() => {
 		const monacoInstance = monacoRef.current
@@ -1344,9 +1363,7 @@ function App() {
 		try {
 			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
 				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
-				if (!result.ok) {
-					setRunError(result.error ?? `Failed to run ${selectedRuntime}.`)
-				}
+				if (!result.ok) return
 				return
 			}
 
@@ -1796,7 +1813,6 @@ function App() {
 									Clear
 								</button>
 							</div>
-							{runError && <div className="console-error">{runError}</div>}
 							<div className="console-terminal">
 								<runno-run
 									key={`${selectedRuntime ?? "python"}-${terminalKey}`}
