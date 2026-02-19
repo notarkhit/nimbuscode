@@ -132,24 +132,9 @@ console.log("Hello, " + name + "!")
 print(f"Hello, {name or 'friend'}!")
 `,
 	".c": `#include <stdio.h>
-#include <string.h>
 
 int main(void) {
-  char name[128];
-
-  printf("What's your name? ");
-  if (fgets(name, sizeof(name), stdin) == NULL) {
-    printf("Hello, friend\\n");
-    return 0;
-  }
-
-  name[strcspn(name, "\\n")] = '\\0';
-  if (name[0] == '\\0') {
-    printf("Hello, friend\\n");
-  } else {
-    printf("Hello, %s!\\n", name);
-  }
-
+  printf("Hello, World!\\n");
   return 0;
 }
 `,
@@ -256,6 +241,196 @@ const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
 const SETTINGS_TAB_ID = "__nimbus_settings__"
 
 type KeybindingMode = "default" | "vim" | "emacs"
+
+type SimpleCompletionKind =
+	| "keyword"
+	| "function"
+	| "snippet"
+	| "class"
+	| "variable"
+	| "module"
+
+type SimpleCompletionItem = {
+	label: string
+	kind: SimpleCompletionKind
+	insertText?: string
+	detail?: string
+	isSnippet?: boolean
+}
+
+type LanguageCompletionConfig = {
+	language: string
+	triggerCharacters?: string[]
+	items: SimpleCompletionItem[]
+}
+
+const SIMPLE_LANGUAGE_COMPLETIONS: LanguageCompletionConfig[] = [
+	{
+		language: "javascript",
+		triggerCharacters: [".", "_"],
+		items: [
+			{ label: "const", kind: "keyword" },
+			{ label: "let", kind: "keyword" },
+			{ label: "function", kind: "keyword" },
+			{ label: "return", kind: "keyword" },
+			{ label: "if", kind: "keyword" },
+			{ label: "else", kind: "keyword" },
+			{ label: "for", kind: "keyword" },
+			{ label: "while", kind: "keyword" },
+			{ label: "class", kind: "class" },
+			{ label: "import", kind: "keyword" },
+			{ label: "export", kind: "keyword" },
+			{ label: "async", kind: "keyword" },
+			{ label: "await", kind: "keyword" },
+			{ label: "console.log", kind: "function", insertText: "console.log(${1:value})", isSnippet: true },
+		],
+	},
+	{
+		language: "python",
+		triggerCharacters: [".", "_"],
+		items: [
+			{ label: "def", kind: "keyword", insertText: "def ${1:name}(${2:args}):\n\t${3:pass}", isSnippet: true },
+			{ label: "class", kind: "class", insertText: "class ${1:Name}:\n\tdef __init__(self, ${2:args}):\n\t\t${3:pass}", isSnippet: true },
+			{ label: "if", kind: "keyword" },
+			{ label: "elif", kind: "keyword" },
+			{ label: "else", kind: "keyword" },
+			{ label: "for", kind: "keyword", insertText: "for ${1:item} in ${2:iterable}:\n\t${3:pass}", isSnippet: true },
+			{ label: "while", kind: "keyword" },
+			{ label: "import", kind: "keyword" },
+			{ label: "from", kind: "keyword" },
+			{ label: "return", kind: "keyword" },
+			{ label: "print", kind: "function" },
+			{ label: "len", kind: "function" },
+		],
+	},
+	{
+		language: "cpp",
+		triggerCharacters: [".", ":", "_"],
+		items: [
+			{ label: "#include <stdio.h>", kind: "snippet", insertText: "#include <stdio.h>", isSnippet: true },
+			{ label: "#include <iostream>", kind: "snippet", insertText: "#include <iostream>", isSnippet: true },
+			{
+				label: "main",
+				kind: "snippet",
+				insertText: "int main() {\n\t${1:// code}\n\treturn 0;\n}",
+				isSnippet: true,
+			},
+			{ label: "if", kind: "keyword" },
+			{ label: "else", kind: "keyword" },
+			{ label: "for", kind: "keyword", insertText: "for (int ${1:i} = 0; ${1:i} < ${2:n}; ++${1:i}) {\n\t${3}\n}", isSnippet: true },
+			{ label: "while", kind: "keyword" },
+			{ label: "return", kind: "keyword" },
+			{ label: "int", kind: "keyword" },
+			{ label: "char", kind: "keyword" },
+			{ label: "double", kind: "keyword" },
+			{ label: "void", kind: "keyword" },
+			{ label: "std::cout", kind: "variable" },
+			{ label: "std::cin", kind: "variable" },
+			{ label: "printf", kind: "function" },
+		],
+	},
+	{
+		language: "php",
+		triggerCharacters: ["$", ":", ">"],
+		items: [
+			{ label: "<?php", kind: "snippet", insertText: "<?php\n${1:// code}\n", isSnippet: true },
+			{ label: "echo", kind: "keyword" },
+			{ label: "function", kind: "keyword", insertText: "function ${1:name}(${2:$args}) {\n\t${3}\n}", isSnippet: true },
+			{ label: "if", kind: "keyword" },
+			{ label: "else", kind: "keyword" },
+			{ label: "foreach", kind: "keyword", insertText: "foreach (${1:$items} as ${2:$item}) {\n\t${3}\n}", isSnippet: true },
+			{ label: "return", kind: "keyword" },
+			{ label: "class", kind: "class" },
+			{ label: "public", kind: "keyword" },
+			{ label: "private", kind: "keyword" },
+		],
+	},
+	{
+		language: "ruby",
+		triggerCharacters: [".", ":"],
+		items: [
+			{ label: "def", kind: "keyword", insertText: "def ${1:name}(${2:args})\n\t${3}\nend", isSnippet: true },
+			{ label: "class", kind: "class", insertText: "class ${1:Name}\n\t${2}\nend", isSnippet: true },
+			{ label: "module", kind: "module" },
+			{ label: "if", kind: "keyword" },
+			{ label: "elsif", kind: "keyword" },
+			{ label: "else", kind: "keyword" },
+			{ label: "end", kind: "keyword" },
+			{ label: "require", kind: "keyword" },
+			{ label: "puts", kind: "function" },
+			{ label: "each do", kind: "snippet", insertText: "${1:items}.each do |${2:item}|\n\t${3}\nend", isSnippet: true },
+		],
+	},
+	{
+		language: "sql",
+		triggerCharacters: [" "],
+		items: [
+			{ label: "SELECT", kind: "keyword" },
+			{ label: "FROM", kind: "keyword" },
+			{ label: "WHERE", kind: "keyword" },
+			{ label: "INSERT INTO", kind: "keyword" },
+			{ label: "UPDATE", kind: "keyword" },
+			{ label: "DELETE", kind: "keyword" },
+			{ label: "CREATE TABLE", kind: "snippet", insertText: "CREATE TABLE ${1:table_name} (\n\t${2:id} INTEGER PRIMARY KEY,\n\t${3:name} TEXT NOT NULL\n);", isSnippet: true },
+			{ label: "JOIN", kind: "keyword" },
+			{ label: "GROUP BY", kind: "keyword" },
+			{ label: "ORDER BY", kind: "keyword" },
+			{ label: "LIMIT", kind: "keyword" },
+		],
+	},
+]
+
+const toMonacoCompletionKind = (monaco: Monaco, kind: SimpleCompletionKind): number => {
+	switch (kind) {
+		case "function":
+			return monaco.languages.CompletionItemKind.Function
+		case "snippet":
+			return monaco.languages.CompletionItemKind.Snippet
+		case "class":
+			return monaco.languages.CompletionItemKind.Class
+		case "variable":
+			return monaco.languages.CompletionItemKind.Variable
+		case "module":
+			return monaco.languages.CompletionItemKind.Module
+		case "keyword":
+		default:
+			return monaco.languages.CompletionItemKind.Keyword
+	}
+}
+
+const registerSimpleLanguageCompletions = (
+	monaco: Monaco,
+): Array<{ dispose: () => void }> =>
+	SIMPLE_LANGUAGE_COMPLETIONS.map((config) =>
+		monaco.languages.registerCompletionItemProvider(config.language, {
+			triggerCharacters: config.triggerCharacters,
+			provideCompletionItems(
+				model: Monaco["editor"]["ITextModel"],
+				position: Monaco["Position"],
+			) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn,
+				}
+
+				const suggestions = config.items.map((item) => ({
+					label: item.label,
+					kind: toMonacoCompletionKind(monaco, item.kind),
+					insertText: item.insertText ?? item.label,
+					insertTextRules: item.isSnippet
+						? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+						: undefined,
+					detail: item.detail,
+					range,
+				}))
+
+				return { suggestions }
+			},
+		}),
+	)
 
 const applyTokyoNightMonacoTheme = (monaco: Monaco) => {
 	monaco.editor.defineTheme(TOKYO_NIGHT_THEME, {
@@ -576,6 +751,9 @@ const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''")
 function App() {
 	const runnoRef = useRef<RunElement | null>(null)
 	const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+	const monacoRef = useRef<Monaco | null>(null)
+	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
+	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
 
 	const [entries, setEntries] = useState<WorkspaceEntry[]>([])
 	const [selectedPath, setSelectedPath] = useState<string | null>(null)
@@ -590,7 +768,6 @@ function App() {
 
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
-	const [consoleInput, setConsoleInput] = useState("")
 	const [settingsKeybinding, setSettingsKeybinding] =
 		useState<KeybindingMode>("default")
 	const [settingsCompletionsEnabled, setSettingsCompletionsEnabled] =
@@ -626,15 +803,70 @@ function App() {
 	const selectedEditorLanguage = selectedFile
 		? getEditorLanguageForPath(selectedFile.path)
 		: "plaintext"
-	const usesConsoleInput =
-		selectedRuntime === "clang" ||
-		selectedRuntime === "clangpp" ||
-		selectedRuntime === "sqlite"
+
+	const disposeSimpleCompletionProviders = () => {
+		for (const disposable of completionDisposablesRef.current) {
+			disposable.dispose()
+		}
+		completionDisposablesRef.current = []
+	}
+
+	const applyCompletionEditorOptions = (
+		enabled: boolean,
+		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
+	) => {
+		const editor = editorOverride ?? editorRef.current
+		if (!editor) return
+
+		editor.updateOptions({
+			quickSuggestions: enabled,
+			suggestOnTriggerCharacters: enabled,
+			snippetSuggestions: enabled ? "inline" : "none",
+		})
+	}
+
+	const refreshSimpleCompletionProviders = (
+		enabled: boolean,
+		monacoOverride?: Monaco,
+	) => {
+		if (monacoOverride) {
+			monacoRef.current = monacoOverride
+		}
+
+		disposeSimpleCompletionProviders()
+		if (!enabled || !monacoRef.current) return
+
+		completionDisposablesRef.current = registerSimpleLanguageCompletions(
+			monacoRef.current,
+		)
+	}
+
+	const handleEditorMount = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		monaco: Monaco,
+	) => {
+		editorRef.current = editor
+		refreshSimpleCompletionProviders(settingsCompletionsEnabled, monaco)
+		applyCompletionEditorOptions(settingsCompletionsEnabled, editor)
+	}
 
 	const fitRunnoTerminal = () => {
-		const terminal = runnoRef.current?.shadowRoot?.querySelector(
-			"runno-terminal",
-		) as (HTMLElement & { onResize?: () => void }) | null
+		const terminal = runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as
+			| (HTMLElement & {
+					onResize?: () => void
+					run?: (
+						binaryPath: string,
+						binaryName: string,
+						fs: WASIFS,
+						args: string[],
+						env: Record<string, string>,
+					) => Promise<{
+						resultType: "complete" | "crash" | "terminated" | "timeout"
+						exitCode?: number
+						error?: { message: string }
+					}>
+				})
+			| null
 
 		terminal?.onResize?.()
 	}
@@ -650,14 +882,28 @@ function App() {
 		}
 	}
 
+	const getInteractiveRunTerminal = () =>
+		runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as
+			| (HTMLElement & {
+					run: (
+						binaryPath: string,
+						binaryName: string,
+						fs: WASIFS,
+						args: string[],
+						env: Record<string, string>,
+					) => Promise<{
+						resultType: "complete" | "crash" | "terminated" | "timeout"
+						exitCode?: number
+						error?: { message: string }
+					}>
+				})
+			| null
+
 	const runCompiledCode = async (
 		runtime: CompiledRuntime,
 		code: string,
-		stdinText: string,
 	): Promise<{ ok: boolean; error?: string }> => {
 		const terminal = getTerminalWriter()
-		const stdinLines = stdinText.split(/\r?\n/)
-		const stdin = () => `${stdinLines.shift() ?? ""}\n`
 		const entryPath = runtime === "clangpp" ? "/program.cpp" : "/program.c"
 		const commands = buildCompiledCommands(runtime, entryPath)
 		let fs: WASIFS = {
@@ -715,21 +961,30 @@ function App() {
 		}
 
 		try {
-			terminal.write("\r\nRunning program...\r\n")
-			const result = await WASI.start(fetch(binaryURL), {
-				args: [commands.run.binaryName, ...(commands.run.args ?? [])],
-				env: commands.run.env ?? {},
-				fs,
-				stdin,
-				stdout: (text) => {
-					terminal.write(text.replace(/\n/g, "\r\n"))
-				},
-				stderr: (text) => {
-					terminal.write(text.replace(/\n/g, "\r\n"))
-				},
-			})
+			const runTerminal = getInteractiveRunTerminal()
+			if (!runTerminal?.run) {
+				return {
+					ok: false,
+					error: "Interactive terminal is unavailable for compiled runtime.",
+				}
+			}
 
-			if (result.exitCode !== 0) {
+			const result = await runTerminal.run(
+				binaryURL,
+				commands.run.binaryName,
+				fs,
+				commands.run.args ?? [],
+				commands.run.env ?? {},
+			)
+
+			if (result.resultType === "crash") {
+				return {
+					ok: false,
+					error: result.error?.message ?? `Runtime failed for ${runtime}.`,
+				}
+			}
+
+			if (result.resultType === "complete" && result.exitCode !== 0) {
 				terminal.write(`\r\n[exit code: ${result.exitCode}]\r\n`)
 			}
 		} catch (error) {
@@ -751,6 +1006,28 @@ function App() {
 
 		return () => cancelAnimationFrame(frame)
 	}, [selectedRuntime, terminalKey])
+
+	useEffect(() => {
+		const monacoInstance = monacoRef.current
+		for (const disposable of completionDisposablesRef.current) {
+			disposable.dispose()
+		}
+		completionDisposablesRef.current = []
+
+		if (monacoInstance && settingsCompletionsEnabled) {
+			completionDisposablesRef.current =
+				registerSimpleLanguageCompletions(monacoInstance)
+		}
+
+		const editor = editorRef.current
+		if (editor) {
+			editor.updateOptions({
+				quickSuggestions: settingsCompletionsEnabled,
+				suggestOnTriggerCharacters: settingsCompletionsEnabled,
+				snippetSuggestions: settingsCompletionsEnabled ? "inline" : "none",
+			})
+		}
+	}, [settingsCompletionsEnabled])
 
 	useEffect(() => {
 		let cancelled = false
@@ -794,6 +1071,10 @@ function App() {
 			for (const timer of Object.values(timers)) {
 				clearTimeout(timer)
 			}
+			for (const disposable of completionDisposablesRef.current) {
+				disposable.dispose()
+			}
+			completionDisposablesRef.current = []
 		}
 	}, [])
 
@@ -1062,11 +1343,7 @@ function App() {
 
 		try {
 			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
-				const result = await runCompiledCode(
-					selectedRuntime,
-					selectedFile.content,
-					consoleInput,
-				)
+				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
 				if (!result.ok) {
 					setRunError(result.error ?? `Failed to run ${selectedRuntime}.`)
 				}
@@ -1077,8 +1354,7 @@ function App() {
 				selectedRuntime === "sqlite"
 					? (() => {
 						if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
-						const firstLine = consoleInput.split(/\r?\n/)[0] ?? ""
-						const safeName = escapeSqlLiteral(firstLine.trim() || "friend")
+						const safeName = escapeSqlLiteral("friend")
 						return selectedFile.content.replaceAll("{{name}}", safeName)
 					})()
 					: selectedFile.content
@@ -1480,13 +1756,14 @@ function App() {
 										</div>
 									</div>
 								) : (
-									<Editor
-										path={selectedFile?.path}
-										height="100%"
-										theme={TOKYO_NIGHT_THEME}
-										beforeMount={applyTokyoNightMonacoTheme}
-										language={selectedEditorLanguage}
-										value={selectedFile?.content ?? ""}
+										<Editor
+											path={selectedFile?.path}
+											height="100%"
+											theme={TOKYO_NIGHT_THEME}
+											beforeMount={applyTokyoNightMonacoTheme}
+											onMount={handleEditorMount}
+											language={selectedEditorLanguage}
+											value={selectedFile?.content ?? ""}
 										onChange={onEditorChange}
 										options={{
 											readOnly: !selectedFile,
@@ -1520,26 +1797,6 @@ function App() {
 								</button>
 							</div>
 							{runError && <div className="console-error">{runError}</div>}
-							{usesConsoleInput && (
-								<div className="console-input-block">
-									<label className="console-input-label" htmlFor="console-input">
-										{selectedRuntime === "sqlite"
-											? "SQL name input"
-											: "Program stdin (one line per read)"}
-									</label>
-									<textarea
-										id="console-input"
-										className="console-input"
-										value={consoleInput}
-										onChange={(event) => setConsoleInput(event.target.value)}
-										placeholder={
-											selectedRuntime === "sqlite"
-												? "Enter name (used for {{name}})"
-												: "Type input lines here"
-										}
-									/>
-								</div>
-							)}
 							<div className="console-terminal">
 								<runno-run
 									key={`${selectedRuntime ?? "python"}-${terminalKey}`}

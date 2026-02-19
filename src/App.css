@@ -655,35 +655,6 @@ body,
 	font-size: 12px;
 }
 
-.console-input-block {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.console-input-label {
-	color: var(--tn-muted);
-	font-size: 11px;
-}
-
-.console-input {
-	width: 100%;
-	min-height: 54px;
-	max-height: 90px;
-	resize: vertical;
-	background: var(--tn-bg-soft);
-	color: var(--tn-text);
-	border: 1px solid var(--tn-border);
-	padding: 6px 8px;
-	font: inherit;
-	box-sizing: border-box;
-	outline: none;
-}
-
-.console-input:focus {
-	border-color: var(--tn-blue);
-}
-
 .logo-icon {
 	color: var(--tn-cyan);
 }
