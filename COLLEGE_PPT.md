@@ -57,15 +57,53 @@ flowchart LR
     RT --> CN
 ```
 
-## Methodology
+## Literature Review
+
+For NimbusCode, the literature review focused on practical patterns used in browser-native coding platforms:
+
+1. Browser IDE UI pattern: explorer + tabbed editor + output panel.
+2. In-browser execution pattern: WebAssembly-backed runtimes for multi-language support.
+3. Local-first persistence pattern: IndexedDB storage for files/folders without server-side storage.
+4. Beginner-focused DX pattern: runtime auto-selection by file extension to reduce setup complexity.
+
+These patterns directly informed the current repository implementation (`src/App.tsx`, `src/fileStore.ts`, `vite.config.ts`).
+
+## Design Methodology
 
 1. Analyze educational requirements for a no-setup coding platform.
-2. Design modular frontend architecture (explorer, editor, runtime, console).
-3. Implement extension-based runtime mapping.
-4. Integrate local workspace persistence using IndexedDB.
-5. Add tabbed editor and settings tab for UX parity with modern IDE patterns.
-6. Add syntax-level language completions and validate execution behavior.
-7. Perform lint/build checks and iterative UI/runtime fixes.
+2. Design a modular frontend architecture:
+   - UI/interaction layer in `src/App.tsx`
+   - Persistence layer in `src/fileStore.ts`
+   - Styling system in `src/App.css` and `src/index.css`
+3. Implement extension-based runtime mapping (`runtimeByExtension`) and language labeling.
+4. Implement runtime execution pipeline:
+   - Interpreted runtimes via `interactiveRunCode`
+   - C/C++ compile pipeline (`clang`/`wasm-ld`) using WASI APIs
+5. Integrate workspace persistence with IndexedDB CRUD (`list`, `put`, `delete`).
+6. Validate with functional workflow checks (create/edit/delete/run/reload) and build-quality checks (`lint`, `build`).
+
+## Schema Structure
+
+NimbusCode uses a lightweight local schema in IndexedDB:
+
+1. Database name: `nimbuscode-workspace`
+2. Object store: `entries`
+3. Key path: `path`
+4. Entry variants:
+   - `file`: `{ path, kind: "file", content, updatedAt }`
+   - `folder`: `{ path, kind: "folder", updatedAt }`
+
+The schema supports hierarchical paths (example: `/src/main.py`) and local-first persistence without backend APIs.
+
+Repository structure command reference:
+
+```bash
+# Command requested in prompt (BSD/macOS style)
+ls -TDL 2
+
+# Linux-compatible equivalent used during repository analysis
+find . -maxdepth 2 -type d | sort
+```
 
 ## Results
 
