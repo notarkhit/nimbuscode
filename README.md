@@ -80,6 +80,30 @@ NimbusCode is frontend-only by design:
 
 You can host the built static files on any static hosting platform.
 
+## Deployment requirement (important)
+
+Runno needs `SharedArrayBuffer`, which only works when the deployed site is
+cross-origin isolated.
+
+Your deployed HTML response must include:
+
+```http
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+This repo already includes:
+
+- `vercel.json` for Vercel deployments
+- `public/_headers` for platforms that support `_headers` (for example Netlify /
+  Cloudflare Pages static headers)
+
+After deploying, open browser devtools on the deployed app and verify:
+
+```js
+window.crossOriginIsolated // should be true
+```
+
 ## Development
 
 Install dependencies:

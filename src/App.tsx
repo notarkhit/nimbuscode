@@ -494,6 +494,22 @@ type BinaryCommand = {
 
 const RUNNO_LANG_BASE_URL = "https://runno.dev/langs"
 
+const getCrossOriginIsolationError = (): string | null => {
+	if (typeof window === "undefined") return null
+
+	if (window.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") {
+		return null
+	}
+
+	return [
+		"SharedArrayBuffer is unavailable in this deployment.",
+		"Set HTTP response headers:",
+		"Cross-Origin-Opener-Policy: same-origin",
+		"Cross-Origin-Embedder-Policy: require-corp",
+		"Then verify window.crossOriginIsolated === true.",
+	].join(" ")
+}
+
 const buildCompiledCommands = (
 	runtime: CompiledRuntime,
 	entryPath: string,
@@ -1343,6 +1359,12 @@ function App() {
 
 	const runCode = async () => {
 		if (isRunning || !runnoRef.current) return
+
+		const crossOriginIsolationError = getCrossOriginIsolationError()
+		if (crossOriginIsolationError) {
+			setRunError(crossOriginIsolationError)
+			return
+		}
 
 		if (!selectedFile) {
 			setRunError("Select a file to run.")
