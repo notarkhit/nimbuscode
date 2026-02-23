@@ -1631,7 +1631,7 @@ function App() {
 						) : (
 							<Play size={14} className="inline-icon" />
 						)}
-						{isRunning ? "Running..." : "▶ Run"}
+						{isRunning ? "Running..." : "Run"}
 					</button>
 					<button
 						className="settings-btn"
