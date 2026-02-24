@@ -246,13 +246,13 @@ type ThemeMode = "dark" | "light"
 const THEME_STORAGE_KEY = "nimbuscode:settings:theme"
 
 const readStoredTheme = (): ThemeMode => {
-	if (typeof window === "undefined") return "dark"
+	if (typeof window === "undefined") return "light"
 
 	try {
 		const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark"
+		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light"
 	} catch {
-		return "dark"
+		return "light"
 	}
 }
 
@@ -880,7 +880,9 @@ function App() {
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
 	const vimKeydownDisposableRef = useRef<{ dispose: () => void } | null>(null)
 	const vimModeRef = useRef<VimInteractionMode>("insert")
-	const vimPendingActionRef = useRef<"d" | "y" | null>(null)
+	const vimPendingActionRef = useRef<"d" | "y" | "c" | null>(null)
+	const vimPendingPrefixRef = useRef<"g" | null>(null)
+	const vimCountBufferRef = useRef("")
 	const vimYankedTextRef = useRef<string>("")
 	const vimYankWasLineRef = useRef(false)
 
@@ -957,15 +959,53 @@ function App() {
 				: "INSERT"
 			: "DEFAULT"
 
+	const applyEditorCursorStyle = (
+		keybindingOverride?: KeybindingMode,
+		modeOverride?: VimInteractionMode,
+		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
+	) => {
+		const editor = editorOverride ?? editorRef.current
+		if (!editor) return
+
+		const keybinding = keybindingOverride ?? settingsKeybinding
+		const mode = modeOverride ?? vimModeRef.current
+		const isVimNormalMode = keybinding === "vim" && mode === "normal"
+
+		editor.updateOptions({
+			cursorStyle: isVimNormalMode ? "block" : "line",
+			cursorBlinking: isVimNormalMode ? "solid" : "blink",
+		})
+	}
+
 	const setVimInteractionMode = (mode: VimInteractionMode) => {
 		vimModeRef.current = mode
 		setVimMode(mode)
+		applyEditorCursorStyle(undefined, mode)
+	}
+
+	const resetVimPendingState = () => {
+		vimPendingActionRef.current = null
+		vimPendingPrefixRef.current = null
+		vimCountBufferRef.current = ""
+	}
+
+	const takeVimCount = (): number => {
+		const rawCount = vimCountBufferRef.current
+		vimCountBufferRef.current = ""
+		const parsed = Number.parseInt(rawCount || "1", 10)
+		return Number.isNaN(parsed) || parsed < 1 ? 1 : parsed
+	}
+
+	const repeatByCount = (count: number, action: () => void) => {
+		for (let index = 0; index < Math.max(1, count); index += 1) {
+			action()
+		}
 	}
 
 	const stopVimKeybindings = () => {
 		vimKeydownDisposableRef.current?.dispose()
 		vimKeydownDisposableRef.current = null
-		vimPendingActionRef.current = null
+		resetVimPendingState()
 		setVimInteractionMode("insert")
 	}
 
@@ -978,7 +1018,23 @@ function App() {
 		editor.setPosition({ lineNumber, column: 1 })
 	}
 
-	const deleteCurrentLine = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+	const moveCursorToLineFirstNonWhitespace = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		lineNumber: number,
+	) => {
+		const model = editor.getModel()
+		if (!model) return
+		const firstNonWhitespaceColumn = model.getLineFirstNonWhitespaceColumn(lineNumber)
+		editor.setPosition({
+			lineNumber,
+			column: firstNonWhitespaceColumn > 0 ? firstNonWhitespaceColumn : 1,
+		})
+	}
+
+	const deleteLineRange = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		lineCountToDelete: number,
+	) => {
 		const model = editor.getModel()
 		const monaco = monacoRef.current
 		if (!model || !monaco) return
@@ -986,33 +1042,47 @@ function App() {
 		const position = editor.getPosition()
 		if (!position) return
 
-		const lineNumber = position.lineNumber
-		const lineCount = model.getLineCount()
-		const nextLineNumber = Math.min(lineNumber + 1, lineCount)
-		const maxColumn = model.getLineMaxColumn(lineNumber)
-		const hasTrailingNewline = lineNumber < lineCount
+		const startLine = position.lineNumber
+		const lastLine = model.getLineCount()
+		const endLine = Math.min(startLine + lineCountToDelete - 1, lastLine)
 
-		const deletionRange = hasTrailingNewline
-			? new monaco.Range(lineNumber, 1, nextLineNumber, 1)
-			: new monaco.Range(lineNumber, 1, lineNumber, maxColumn)
+		const deletionRange =
+			endLine < lastLine
+				? new monaco.Range(startLine, 1, endLine + 1, 1)
+				: new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine))
 
 		editor.executeEdits("nimbus-vim", [{ range: deletionRange, text: "" }])
-		const targetLine = Math.min(lineNumber, Math.max(1, model.getLineCount()))
+		const targetLine = Math.min(startLine, Math.max(1, model.getLineCount()))
 		moveCursorToLineStart(editor, targetLine)
 	}
 
-	const yankCurrentLine = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+	const yankLineRange = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		lineCountToYank: number,
+	) => {
 		const model = editor.getModel()
+		const monaco = monacoRef.current
 		const position = editor.getPosition()
-		if (!model || !position) return
+		if (!model || !monaco || !position) return
 
-		const lineNumber = position.lineNumber
-		const lineText = model.getLineContent(lineNumber)
-		vimYankedTextRef.current = `${lineText}\n`
+		const startLine = position.lineNumber
+		const lastLine = model.getLineCount()
+		const endLine = Math.min(startLine + lineCountToYank - 1, lastLine)
+		const range = new monaco.Range(
+			startLine,
+			1,
+			endLine,
+			model.getLineMaxColumn(endLine),
+		)
+		const text = model.getValueInRange(range)
+		vimYankedTextRef.current = `${text}${endLine < lastLine ? "\n" : ""}`
 		vimYankWasLineRef.current = true
 	}
 
-	const pasteVimYank = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+	const pasteVimYank = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		before = false,
+	) => {
 		const text = vimYankedTextRef.current
 		const monaco = monacoRef.current
 		const model = editor.getModel()
@@ -1020,20 +1090,202 @@ function App() {
 		if (!text || !monaco || !model || !position) return
 
 		if (vimYankWasLineRef.current) {
-			const insertLine = Math.min(position.lineNumber + 1, model.getLineCount() + 1)
+			const insertLine = before
+				? position.lineNumber
+				: Math.min(position.lineNumber + 1, model.getLineCount() + 1)
 			const insertRange = new monaco.Range(insertLine, 1, insertLine, 1)
 			editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
 			moveCursorToLineStart(editor, insertLine)
 			return
 		}
 
+		const maxColumn = model.getLineMaxColumn(position.lineNumber)
+		const insertColumn = before
+			? position.column
+			: Math.min(position.column + 1, maxColumn)
 		const insertRange = new monaco.Range(
 			position.lineNumber,
-			position.column,
+			insertColumn,
 			position.lineNumber,
-			position.column,
+			insertColumn,
 		)
 		editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
+		editor.setPosition({
+			lineNumber: position.lineNumber,
+			column: insertColumn,
+		})
+	}
+
+	const deleteSelectionRange = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		range: {
+			startLineNumber: number
+			startColumn: number
+			endLineNumber: number
+			endColumn: number
+		},
+	) => {
+		editor.executeEdits("nimbus-vim", [{ range, text: "" }])
+		editor.setPosition({
+			lineNumber: range.startLineNumber,
+			column: range.startColumn,
+		})
+	}
+
+	const yankSelectionRange = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		range: {
+			startLineNumber: number
+			startColumn: number
+			endLineNumber: number
+			endColumn: number
+		},
+	) => {
+		const model = editor.getModel()
+		if (!model) return
+		vimYankedTextRef.current = model.getValueInRange(range)
+		vimYankWasLineRef.current = false
+		editor.setPosition({
+			lineNumber: range.endLineNumber,
+			column: range.endColumn,
+		})
+	}
+
+	const selectByMotion = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		motionKey: string,
+		count: number,
+	): boolean => {
+		const model = editor.getModel()
+		const monaco = monacoRef.current
+		const position = editor.getPosition()
+		if (!model || !monaco || !position) return false
+
+		switch (motionKey) {
+			case "w":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorWordStartRightSelect", null)
+				})
+				return true
+			case "b":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorWordStartLeftSelect", null)
+				})
+				return true
+			case "e":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorWordEndRightSelect", null)
+				})
+				return true
+			case "h":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorLeftSelect", null)
+				})
+				return true
+			case "j":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorDownSelect", null)
+				})
+				return true
+			case "k":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorUpSelect", null)
+				})
+				return true
+			case "l":
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "cursorRightSelect", null)
+				})
+				return true
+			case "$":
+				editor.trigger("nimbus-vim", "cursorLineEndSelect", null)
+				return true
+			case "0":
+				editor.trigger("nimbus-vim", "cursorLineStartSelect", null)
+				return true
+			case "^": {
+				const firstNonWhitespaceColumn =
+					model.getLineFirstNonWhitespaceColumn(position.lineNumber) || 1
+				editor.setSelection(
+					new monaco.Selection(
+						position.lineNumber,
+						position.column,
+						position.lineNumber,
+						firstNonWhitespaceColumn,
+					),
+				)
+				return true
+			}
+			default:
+				return false
+		}
+	}
+
+	const applyPendingOperator = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		key: string,
+		lowerKey: string,
+	): boolean => {
+		const pendingAction = vimPendingActionRef.current
+		const monaco = monacoRef.current
+		const position = editor.getPosition()
+		if (!pendingAction || !monaco || !position) return false
+
+		const count = takeVimCount()
+		const isDoubleAction =
+			(pendingAction === "d" && lowerKey === "d") ||
+			(pendingAction === "y" && lowerKey === "y") ||
+			(pendingAction === "c" && lowerKey === "c")
+
+		if (isDoubleAction) {
+			if (pendingAction === "d") {
+				deleteLineRange(editor, count)
+			}
+			if (pendingAction === "y") {
+				yankLineRange(editor, count)
+			}
+			if (pendingAction === "c") {
+				deleteLineRange(editor, count)
+				setVimInteractionMode("insert")
+			}
+			vimPendingActionRef.current = null
+			return true
+		}
+
+		editor.setSelection(
+			new monaco.Selection(
+				position.lineNumber,
+				position.column,
+				position.lineNumber,
+				position.column,
+			),
+		)
+
+		const motionApplied = selectByMotion(editor, key, count)
+		const selection = editor.getSelection()
+		const hasSelection =
+			selection &&
+			!(
+				selection.startLineNumber === selection.endLineNumber &&
+				selection.startColumn === selection.endColumn
+			)
+
+		if (!motionApplied || !selection || !hasSelection) {
+			vimPendingActionRef.current = null
+			return true
+		}
+
+		if (pendingAction === "y") {
+			yankSelectionRange(editor, selection)
+		} else {
+			deleteSelectionRange(editor, selection)
+			if (pendingAction === "c") {
+				setVimInteractionMode("insert")
+			}
+		}
+
+		vimPendingActionRef.current = null
+		return true
 	}
 
 	const startVimKeybindings = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
@@ -1055,7 +1307,7 @@ function App() {
 			if (key === "Escape") {
 				event.preventDefault()
 				event.stopPropagation()
-				vimPendingActionRef.current = null
+				resetVimPendingState()
 				setVimInteractionMode("normal")
 				return
 			}
@@ -1067,27 +1319,69 @@ function App() {
 			event.preventDefault()
 			event.stopPropagation()
 
-			const pendingAction = vimPendingActionRef.current
-			if (pendingAction) {
-				vimPendingActionRef.current = null
-				if (pendingAction === "d" && lowerKey === "d") {
-					deleteCurrentLine(editor)
+			if (/^[0-9]$/u.test(key)) {
+				const zeroIsOperatorMotion =
+					key === "0" &&
+					vimCountBufferRef.current.length === 0 &&
+					!!vimPendingActionRef.current
+				if (zeroIsOperatorMotion) {
+					// Let pending operator consume `0` as a motion (e.g. d0, y0, c0)
+				} else
+				if (
+					key === "0" &&
+					vimCountBufferRef.current.length === 0 &&
+					!vimPendingActionRef.current &&
+					!vimPendingPrefixRef.current
+				) {
+					editor.trigger("nimbus-vim", "cursorLineStart", null)
+					return
+				} else {
+					vimCountBufferRef.current += key
+					return
 				}
-				if (pendingAction === "y" && lowerKey === "y") {
-					yankCurrentLine(editor)
+			}
+
+			if (vimPendingPrefixRef.current === "g") {
+				vimPendingPrefixRef.current = null
+				if (lowerKey === "g") {
+					const model = editor.getModel()
+					if (!model) return
+					const requestedLine = takeVimCount()
+					const targetLine = Math.min(
+						Math.max(1, requestedLine),
+						model.getLineCount(),
+					)
+					moveCursorToLineStart(editor, targetLine)
 				}
 				return
 			}
 
+			if (applyPendingOperator(editor, key, lowerKey)) {
+				return
+			}
+
 			if (ctrlOrMeta && lowerKey === "r") {
-				editor.trigger("nimbus-vim", "redo", null)
+				const count = takeVimCount()
+				repeatByCount(count, () => {
+					editor.trigger("nimbus-vim", "redo", null)
+				})
 				return
 			}
 
 			switch (key) {
 				case "i":
+					resetVimPendingState()
 					setVimInteractionMode("insert")
 					return
+				case "I": {
+					const position = editor.getPosition()
+					if (position) {
+						moveCursorToLineFirstNonWhitespace(editor, position.lineNumber)
+					}
+					resetVimPendingState()
+					setVimInteractionMode("insert")
+					return
+				}
 				case "a": {
 					const model = editor.getModel()
 					const position = editor.getPosition()
@@ -1100,6 +1394,13 @@ function App() {
 							column: nextColumn,
 						})
 					}
+					resetVimPendingState()
+					setVimInteractionMode("insert")
+					return
+				}
+				case "A": {
+					editor.trigger("nimbus-vim", "cursorLineEnd", null)
+					resetVimPendingState()
 					setVimInteractionMode("insert")
 					return
 				}
@@ -1121,6 +1422,7 @@ function App() {
 							column: 1,
 						})
 					}
+					resetVimPendingState()
 					setVimInteractionMode("insert")
 					return
 				}
@@ -1140,50 +1442,113 @@ function App() {
 							column: 1,
 						})
 					}
+					resetVimPendingState()
 					setVimInteractionMode("insert")
 					return
 				}
 				case "h":
 				case "ArrowLeft":
-					editor.trigger("nimbus-vim", "cursorLeft", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorLeft", null)
+					})
 					return
 				case "j":
 				case "ArrowDown":
-					editor.trigger("nimbus-vim", "cursorDown", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorDown", null)
+					})
 					return
 				case "k":
 				case "ArrowUp":
-					editor.trigger("nimbus-vim", "cursorUp", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorUp", null)
+					})
 					return
 				case "l":
 				case "ArrowRight":
-					editor.trigger("nimbus-vim", "cursorRight", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorRight", null)
+					})
 					return
-				case "0":
+				case "w":
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorWordStartRight", null)
+					})
+					return
+				case "b":
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorWordStartLeft", null)
+					})
+					return
+				case "e":
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "cursorWordEndRight", null)
+					})
+					return
 				case "Home":
 					editor.trigger("nimbus-vim", "cursorLineStart", null)
 					return
+				case "^": {
+					const position = editor.getPosition()
+					if (position) {
+						moveCursorToLineFirstNonWhitespace(editor, position.lineNumber)
+					}
+					return
+				}
 				case "$":
 				case "End":
 					editor.trigger("nimbus-vim", "cursorLineEnd", null)
 					return
 				case "x":
 				case "Delete":
-					editor.trigger("nimbus-vim", "deleteRight", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "deleteRight", null)
+					})
+					return
+				case "X":
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "deleteLeft", null)
+					})
 					return
 				case "u":
-					editor.trigger("nimbus-vim", "undo", null)
+					repeatByCount(takeVimCount(), () => {
+						editor.trigger("nimbus-vim", "undo", null)
+					})
 					return
 				case "p":
 					pasteVimYank(editor)
 					return
+				case "P":
+					pasteVimYank(editor, true)
+					return
 				case "d":
+					vimPendingPrefixRef.current = null
 					vimPendingActionRef.current = "d"
 					return
 				case "y":
+					vimPendingPrefixRef.current = null
 					vimPendingActionRef.current = "y"
 					return
+				case "c":
+					vimPendingPrefixRef.current = null
+					vimPendingActionRef.current = "c"
+					return
+				case "g":
+					vimPendingPrefixRef.current = "g"
+					return
+				case "G": {
+					const model = editor.getModel()
+					if (!model) return
+					const hasExplicitCount = vimCountBufferRef.current.length > 0
+					const count = takeVimCount()
+					const targetLine = hasExplicitCount
+						? Math.min(Math.max(1, count), model.getLineCount())
+						: model.getLineCount()
+					moveCursorToLineStart(editor, targetLine)
+					return
+				}
 				default:
+					resetVimPendingState()
 					return
 			}
 		})
@@ -1202,6 +1567,7 @@ function App() {
 		}
 
 		stopVimKeybindings()
+		applyEditorCursorStyle(mode, "insert", editor)
 	}
 
 	const disposeSimpleCompletionProviders = () => {
