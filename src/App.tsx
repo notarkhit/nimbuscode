@@ -244,6 +244,10 @@ const SETTINGS_TAB_ID = "__nimbus_settings__"
 type KeybindingMode = "default" | "vim"
 type ThemeMode = "dark" | "light"
 const THEME_STORAGE_KEY = "nimbuscode:settings:theme"
+const KEYBINDING_STORAGE_KEY = "nimbuscode:settings:keybinding"
+const COMPLETIONS_STORAGE_KEY = "nimbuscode:settings:completions"
+const RELATIVE_LINE_NUMBERS_STORAGE_KEY =
+	"nimbuscode:settings:relative-line-numbers"
 
 const readStoredTheme = (): ThemeMode => {
 	if (typeof window === "undefined") return "light"
@@ -253,6 +257,38 @@ const readStoredTheme = (): ThemeMode => {
 		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light"
 	} catch {
 		return "light"
+	}
+}
+
+const readStoredKeybinding = (): KeybindingMode => {
+	if (typeof window === "undefined") return "default"
+
+	try {
+		const storedValue = window.localStorage.getItem(KEYBINDING_STORAGE_KEY)
+		return storedValue === "vim" || storedValue === "default" ? storedValue : "default"
+	} catch {
+		return "default"
+	}
+}
+
+const readStoredCompletionsEnabled = (): boolean => {
+	if (typeof window === "undefined") return true
+
+	try {
+		const storedValue = window.localStorage.getItem(COMPLETIONS_STORAGE_KEY)
+		return storedValue === null ? true : storedValue === "true"
+	} catch {
+		return true
+	}
+}
+
+const readStoredRelativeLineNumbers = (): boolean => {
+	if (typeof window === "undefined") return false
+
+	try {
+		return window.localStorage.getItem(RELATIVE_LINE_NUMBERS_STORAGE_KEY) === "true"
+	} catch {
+		return false
 	}
 }
 
@@ -882,6 +918,7 @@ function App() {
 	const vimModeRef = useRef<VimInteractionMode>("insert")
 	const vimPendingActionRef = useRef<"d" | "y" | "c" | null>(null)
 	const vimPendingPrefixRef = useRef<"g" | null>(null)
+	const vimPendingTextObjectRef = useRef<"i" | "a" | null>(null)
 	const vimCountBufferRef = useRef("")
 	const vimYankedTextRef = useRef<string>("")
 	const vimYankWasLineRef = useRef(false)
@@ -900,10 +937,13 @@ function App() {
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
 	const [settingsKeybinding, setSettingsKeybinding] =
-		useState<KeybindingMode>("default")
+		useState<KeybindingMode>(readStoredKeybinding)
 	const [settingsTheme, setSettingsTheme] = useState<ThemeMode>(readStoredTheme)
 	const [settingsCompletionsEnabled, setSettingsCompletionsEnabled] =
-		useState(true)
+		useState(readStoredCompletionsEnabled)
+	const [settingsRelativeLineNumbers, setSettingsRelativeLineNumbers] = useState(
+		readStoredRelativeLineNumbers,
+	)
 	const [vimMode, setVimMode] = useState<VimInteractionMode>("insert")
 	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
 		lineNumber: 1,
@@ -972,6 +1012,18 @@ function App() {
 		})
 	}
 
+	const applyLineNumberMode = (
+		relativeLineNumbersEnabled: boolean,
+		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
+	) => {
+		const editor = editorOverride ?? editorRef.current
+		if (!editor) return
+
+		editor.updateOptions({
+			lineNumbers: relativeLineNumbersEnabled ? "relative" : "on",
+		})
+	}
+
 	const setVimInteractionMode = (mode: VimInteractionMode) => {
 		vimModeRef.current = mode
 		setVimMode(mode)
@@ -981,6 +1033,7 @@ function App() {
 	const resetVimPendingState = () => {
 		vimPendingActionRef.current = null
 		vimPendingPrefixRef.current = null
+		vimPendingTextObjectRef.current = null
 		vimCountBufferRef.current = ""
 	}
 
@@ -1026,6 +1079,80 @@ function App() {
 		})
 	}
 
+	const isVimWordCharacter = (value: string): boolean => /[A-Za-z0-9_]/u.test(value)
+
+	const buildWordObjectRange = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		around: boolean,
+	) => {
+		const model = editor.getModel()
+		const monaco = monacoRef.current
+		const position = editor.getPosition()
+		if (!model || !monaco || !position) return null
+
+		const lineContent = model.getLineContent(position.lineNumber)
+		if (lineContent.length === 0) return null
+
+		let cursorIndex = Math.max(0, Math.min(position.column - 1, lineContent.length - 1))
+		if (!isVimWordCharacter(lineContent[cursorIndex] ?? "")) {
+			let rightIndex = cursorIndex
+			while (
+				rightIndex < lineContent.length &&
+				!isVimWordCharacter(lineContent[rightIndex] ?? "")
+			) {
+				rightIndex += 1
+			}
+
+			if (rightIndex < lineContent.length) {
+				cursorIndex = rightIndex
+			} else {
+				let leftIndex = cursorIndex - 1
+				while (leftIndex >= 0 && !isVimWordCharacter(lineContent[leftIndex] ?? "")) {
+					leftIndex -= 1
+				}
+				if (leftIndex < 0) return null
+				cursorIndex = leftIndex
+			}
+		}
+
+		let startIndex = cursorIndex
+		while (
+			startIndex > 0 &&
+			isVimWordCharacter(lineContent[startIndex - 1] ?? "")
+		) {
+			startIndex -= 1
+		}
+
+		let endIndex = cursorIndex + 1
+		while (
+			endIndex < lineContent.length &&
+			isVimWordCharacter(lineContent[endIndex] ?? "")
+		) {
+			endIndex += 1
+		}
+
+		if (around) {
+			let trailingIndex = endIndex
+			while (trailingIndex < lineContent.length && /\s/u.test(lineContent[trailingIndex])) {
+				trailingIndex += 1
+			}
+			if (trailingIndex > endIndex) {
+				endIndex = trailingIndex
+			} else {
+				while (startIndex > 0 && /\s/u.test(lineContent[startIndex - 1])) {
+					startIndex -= 1
+				}
+			}
+		}
+
+		return new monaco.Range(
+			position.lineNumber,
+			startIndex + 1,
+			position.lineNumber,
+			endIndex + 1,
+		)
+	}
+
 	const deleteLineRange = (
 		editor: Monaco["editor"]["IStandaloneCodeEditor"],
 		lineCountToDelete: number,
@@ -1040,6 +1167,15 @@ function App() {
 		const startLine = position.lineNumber
 		const lastLine = model.getLineCount()
 		const endLine = Math.min(startLine + lineCountToDelete - 1, lastLine)
+		const yankRange = new monaco.Range(
+			startLine,
+			1,
+			endLine,
+			model.getLineMaxColumn(endLine),
+		)
+		const yankedText = model.getValueInRange(yankRange)
+		vimYankedTextRef.current = `${yankedText}${endLine < lastLine ? "\n" : ""}`
+		vimYankWasLineRef.current = true
 
 		const deletionRange =
 			endLine < lastLine
@@ -1120,6 +1256,12 @@ function App() {
 			endColumn: number
 		},
 	) => {
+		const model = editor.getModel()
+		if (model) {
+			vimYankedTextRef.current = model.getValueInRange(range)
+			vimYankWasLineRef.current = false
+		}
+
 		editor.executeEdits("nimbus-vim", [{ range, text: "" }])
 		editor.setPosition({
 			lineNumber: range.startLineNumber,
@@ -1144,6 +1286,89 @@ function App() {
 			lineNumber: range.endLineNumber,
 			column: range.endColumn,
 		})
+	}
+
+	const deleteCharacters = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		count: number,
+		direction: "left" | "right",
+	) => {
+		const model = editor.getModel()
+		const monaco = monacoRef.current
+		const position = editor.getPosition()
+		if (!model || !monaco || !position) return
+
+		if (direction === "right") {
+			const maxColumn = model.getLineMaxColumn(position.lineNumber)
+			if (position.column < maxColumn) {
+				const endColumn = Math.min(position.column + count, maxColumn)
+				deleteSelectionRange(
+					editor,
+					new monaco.Range(
+						position.lineNumber,
+						position.column,
+						position.lineNumber,
+						endColumn,
+					),
+				)
+				return
+			}
+
+			if (position.lineNumber < model.getLineCount()) {
+				deleteSelectionRange(
+					editor,
+					new monaco.Range(
+						position.lineNumber,
+						maxColumn,
+						position.lineNumber + 1,
+						1,
+					),
+				)
+			}
+			return
+		}
+
+		if (position.column <= 1) return
+		const startColumn = Math.max(1, position.column - count)
+		deleteSelectionRange(
+			editor,
+			new monaco.Range(
+				position.lineNumber,
+				startColumn,
+				position.lineNumber,
+				position.column,
+			),
+		)
+	}
+
+	const deleteToLineEnd = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		enterInsertMode: boolean,
+	) => {
+		const model = editor.getModel()
+		const monaco = monacoRef.current
+		const position = editor.getPosition()
+		if (!model || !monaco || !position) {
+			if (enterInsertMode) setVimInteractionMode("insert")
+			return
+		}
+
+		const maxColumn = model.getLineMaxColumn(position.lineNumber)
+		if (position.column < maxColumn) {
+			deleteSelectionRange(
+				editor,
+				new monaco.Range(
+					position.lineNumber,
+					position.column,
+					position.lineNumber,
+					maxColumn,
+				),
+			)
+		}
+
+		if (enterInsertMode) {
+			setVimInteractionMode("insert")
+		}
 	}
 
 	const selectByMotion = (
@@ -1226,6 +1451,41 @@ function App() {
 		const position = editor.getPosition()
 		if (!pendingAction || !monaco || !position) return false
 
+		const pendingTextObject = vimPendingTextObjectRef.current
+		if (pendingTextObject) {
+			vimPendingTextObjectRef.current = null
+			if (lowerKey !== "w") {
+				vimPendingActionRef.current = null
+				takeVimCount()
+				return true
+			}
+
+			const wordObjectRange = buildWordObjectRange(editor, pendingTextObject === "a")
+			if (!wordObjectRange) {
+				vimPendingActionRef.current = null
+				takeVimCount()
+				return true
+			}
+
+			if (pendingAction === "y") {
+				yankSelectionRange(editor, wordObjectRange)
+			} else {
+				deleteSelectionRange(editor, wordObjectRange)
+				if (pendingAction === "c") {
+					setVimInteractionMode("insert")
+				}
+			}
+
+			vimPendingActionRef.current = null
+			takeVimCount()
+			return true
+		}
+
+		if (lowerKey === "i" || lowerKey === "a") {
+			vimPendingTextObjectRef.current = lowerKey
+			return true
+		}
+
 		const count = takeVimCount()
 		const isDoubleAction =
 			(pendingAction === "d" && lowerKey === "d") ||
@@ -1244,6 +1504,7 @@ function App() {
 				setVimInteractionMode("insert")
 			}
 			vimPendingActionRef.current = null
+			vimPendingTextObjectRef.current = null
 			return true
 		}
 
@@ -1267,6 +1528,7 @@ function App() {
 
 		if (!motionApplied || !selection || !hasSelection) {
 			vimPendingActionRef.current = null
+			vimPendingTextObjectRef.current = null
 			return true
 		}
 
@@ -1280,6 +1542,7 @@ function App() {
 		}
 
 		vimPendingActionRef.current = null
+		vimPendingTextObjectRef.current = null
 		return true
 	}
 
@@ -1496,14 +1759,32 @@ function App() {
 					return
 				case "x":
 				case "Delete":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "deleteRight", null)
-					})
+					deleteCharacters(editor, takeVimCount(), "right")
 					return
 				case "X":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "deleteLeft", null)
-					})
+					deleteCharacters(editor, takeVimCount(), "left")
+					return
+				case "D":
+					deleteToLineEnd(editor, false)
+					resetVimPendingState()
+					return
+				case "C":
+					deleteToLineEnd(editor, true)
+					resetVimPendingState()
+					return
+				case "Y":
+					yankLineRange(editor, takeVimCount())
+					resetVimPendingState()
+					return
+				case "s":
+					deleteCharacters(editor, takeVimCount(), "right")
+					resetVimPendingState()
+					setVimInteractionMode("insert")
+					return
+				case "S":
+					deleteLineRange(editor, takeVimCount())
+					resetVimPendingState()
+					setVimInteractionMode("insert")
 					return
 				case "u":
 					repeatByCount(takeVimCount(), () => {
@@ -1609,6 +1890,7 @@ function App() {
 		editorRef.current = editor
 		refreshSimpleCompletionProviders(settingsCompletionsEnabled, monaco)
 		applyCompletionEditorOptions(settingsCompletionsEnabled, editor)
+		applyLineNumberMode(settingsRelativeLineNumbers, editor)
 		applyKeybindingMode(settingsKeybinding, editor)
 		const initialPosition = editor.getPosition()
 		if (initialPosition) {
@@ -1860,6 +2142,36 @@ function App() {
 	}, [settingsTheme])
 
 	useEffect(() => {
+		try {
+			window.localStorage.setItem(KEYBINDING_STORAGE_KEY, settingsKeybinding)
+		} catch {
+			// Ignore storage failures (private mode / disabled storage)
+		}
+	}, [settingsKeybinding])
+
+	useEffect(() => {
+		try {
+			window.localStorage.setItem(
+				COMPLETIONS_STORAGE_KEY,
+				settingsCompletionsEnabled ? "true" : "false",
+			)
+		} catch {
+			// Ignore storage failures (private mode / disabled storage)
+		}
+	}, [settingsCompletionsEnabled])
+
+	useEffect(() => {
+		try {
+			window.localStorage.setItem(
+				RELATIVE_LINE_NUMBERS_STORAGE_KEY,
+				settingsRelativeLineNumbers ? "true" : "false",
+			)
+		} catch {
+			// Ignore storage failures (private mode / disabled storage)
+		}
+	}, [settingsRelativeLineNumbers])
+
+	useEffect(() => {
 		if (!runError) return
 
 		const terminal = getTerminalWriter()
@@ -1892,6 +2204,10 @@ function App() {
 	useEffect(() => {
 		applyKeybindingMode(settingsKeybinding)
 	}, [settingsKeybinding])
+
+	useEffect(() => {
+		applyLineNumberMode(settingsRelativeLineNumbers)
+	}, [settingsRelativeLineNumbers])
 
 	useEffect(() => {
 		const editor = editorRef.current
@@ -2665,27 +2981,60 @@ function App() {
 														className="settings-switch-track"
 														aria-hidden="true"
 													>
-														<span className="settings-switch-thumb" />
-													</span>
-												</label>
-											</div>
+													<span className="settings-switch-thumb" />
+												</span>
+											</label>
 										</div>
 									</div>
-								) : (
-										<Editor
-											path={selectedFile?.path}
-											height="100%"
-											theme={selectedMonacoTheme}
-											beforeMount={defineMonacoThemes}
-											onMount={handleEditorMount}
-											language={selectedEditorLanguage}
-											value={selectedFile?.content ?? ""}
+									<div className="settings-group">
+										<div className="settings-toggle-row">
+											<span className="settings-label">
+												Relative line numbers
+											</span>
+											<label
+												className="settings-switch"
+												htmlFor="relative-lines-toggle"
+											>
+												<input
+													id="relative-lines-toggle"
+													type="checkbox"
+													className="settings-switch-input"
+													checked={settingsRelativeLineNumbers}
+													onChange={(event) => {
+														setSettingsRelativeLineNumbers(event.target.checked)
+													}}
+												/>
+												<span
+													className="settings-switch-track"
+													aria-hidden="true"
+												>
+													<span className="settings-switch-thumb" />
+												</span>
+											</label>
+										</div>
+										<span className="settings-meta">
+											{settingsRelativeLineNumbers ? "Enabled" : "Disabled"}
+										</span>
+									</div>
+								</div>
+							) : (
+								<Editor
+										path={selectedFile?.path}
+										height="100%"
+										theme={selectedMonacoTheme}
+										beforeMount={defineMonacoThemes}
+										onMount={handleEditorMount}
+										language={selectedEditorLanguage}
+										value={selectedFile?.content ?? ""}
 										onChange={onEditorChange}
 										options={{
 											readOnly: !selectedFile,
 											fontFamily:
 												'"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
 											fontLigatures: true,
+											lineNumbers: settingsRelativeLineNumbers
+												? "relative"
+												: "on",
 										}}
 									/>
 								)}
