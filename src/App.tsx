@@ -241,7 +241,7 @@ const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
 const CATPPUCCIN_LATTE_THEME = "catppuccin-latte-nimbus"
 const SETTINGS_TAB_ID = "__nimbus_settings__"
 
-type KeybindingMode = "default" | "vim" | "emacs"
+type KeybindingMode = "default" | "vim"
 type ThemeMode = "dark" | "light"
 const THEME_STORAGE_KEY = "nimbuscode:settings:theme"
 
@@ -257,6 +257,8 @@ const readStoredTheme = (): ThemeMode => {
 }
 
 type TerminalTheme = Record<string, string>
+type VimInteractionMode = "insert" | "normal"
+type EditorCursorPosition = { lineNumber: number; column: number }
 
 const TOKYO_NIGHT_TERMINAL_THEME: TerminalTheme = {
 	background: "#1a1b26",
@@ -876,6 +878,11 @@ function App() {
 	const monacoRef = useRef<Monaco | null>(null)
 	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
+	const vimKeydownDisposableRef = useRef<{ dispose: () => void } | null>(null)
+	const vimModeRef = useRef<VimInteractionMode>("insert")
+	const vimPendingActionRef = useRef<"d" | "y" | null>(null)
+	const vimYankedTextRef = useRef<string>("")
+	const vimYankWasLineRef = useRef(false)
 
 	const [entries, setEntries] = useState<WorkspaceEntry[]>([])
 	const [selectedPath, setSelectedPath] = useState<string | null>(null)
@@ -895,6 +902,11 @@ function App() {
 	const [settingsTheme, setSettingsTheme] = useState<ThemeMode>(readStoredTheme)
 	const [settingsCompletionsEnabled, setSettingsCompletionsEnabled] =
 		useState(true)
+	const [vimMode, setVimMode] = useState<VimInteractionMode>("insert")
+	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
+		lineNumber: 1,
+		column: 1,
+	})
 	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
 	const [isRunning, setIsRunning] = useState(false)
 
@@ -928,6 +940,269 @@ function App() {
 		: "plaintext"
 	const selectedMonacoTheme =
 		settingsTheme === "light" ? CATPPUCCIN_LATTE_THEME : TOKYO_NIGHT_THEME
+	const editorStats = useMemo(() => {
+		if (!selectedFile) return { lines: 0, words: 0, chars: 0 }
+
+		const content = selectedFile.content
+		const lines = content.length === 0 ? 1 : content.split(/\r\n|\r|\n/u).length
+		const words = content.trim().length === 0 ? 0 : content.trim().split(/\s+/u).length
+		const chars = content.length
+
+		return { lines, words, chars }
+	}, [selectedFile])
+	const keybindingModeLabel =
+		settingsKeybinding === "vim"
+			? vimMode === "normal"
+				? "NORMAL"
+				: "INSERT"
+			: "DEFAULT"
+
+	const setVimInteractionMode = (mode: VimInteractionMode) => {
+		vimModeRef.current = mode
+		setVimMode(mode)
+	}
+
+	const stopVimKeybindings = () => {
+		vimKeydownDisposableRef.current?.dispose()
+		vimKeydownDisposableRef.current = null
+		vimPendingActionRef.current = null
+		setVimInteractionMode("insert")
+	}
+
+	const moveCursorToLineStart = (
+		editor: Monaco["editor"]["IStandaloneCodeEditor"],
+		lineNumber: number,
+	) => {
+		const model = editor.getModel()
+		if (!model) return
+		editor.setPosition({ lineNumber, column: 1 })
+	}
+
+	const deleteCurrentLine = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+		const model = editor.getModel()
+		const monaco = monacoRef.current
+		if (!model || !monaco) return
+
+		const position = editor.getPosition()
+		if (!position) return
+
+		const lineNumber = position.lineNumber
+		const lineCount = model.getLineCount()
+		const nextLineNumber = Math.min(lineNumber + 1, lineCount)
+		const maxColumn = model.getLineMaxColumn(lineNumber)
+		const hasTrailingNewline = lineNumber < lineCount
+
+		const deletionRange = hasTrailingNewline
+			? new monaco.Range(lineNumber, 1, nextLineNumber, 1)
+			: new monaco.Range(lineNumber, 1, lineNumber, maxColumn)
+
+		editor.executeEdits("nimbus-vim", [{ range: deletionRange, text: "" }])
+		const targetLine = Math.min(lineNumber, Math.max(1, model.getLineCount()))
+		moveCursorToLineStart(editor, targetLine)
+	}
+
+	const yankCurrentLine = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+		const model = editor.getModel()
+		const position = editor.getPosition()
+		if (!model || !position) return
+
+		const lineNumber = position.lineNumber
+		const lineText = model.getLineContent(lineNumber)
+		vimYankedTextRef.current = `${lineText}\n`
+		vimYankWasLineRef.current = true
+	}
+
+	const pasteVimYank = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+		const text = vimYankedTextRef.current
+		const monaco = monacoRef.current
+		const model = editor.getModel()
+		const position = editor.getPosition()
+		if (!text || !monaco || !model || !position) return
+
+		if (vimYankWasLineRef.current) {
+			const insertLine = Math.min(position.lineNumber + 1, model.getLineCount() + 1)
+			const insertRange = new monaco.Range(insertLine, 1, insertLine, 1)
+			editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
+			moveCursorToLineStart(editor, insertLine)
+			return
+		}
+
+		const insertRange = new monaco.Range(
+			position.lineNumber,
+			position.column,
+			position.lineNumber,
+			position.column,
+		)
+		editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
+	}
+
+	const startVimKeybindings = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
+		stopVimKeybindings()
+		setVimInteractionMode("normal")
+
+		vimKeydownDisposableRef.current = editor.onKeyDown((event: {
+			browserEvent: KeyboardEvent
+			preventDefault: () => void
+			stopPropagation: () => void
+		}) => {
+			const browserEvent = event.browserEvent
+			const key = browserEvent.key
+			const lowerKey = key.toLowerCase()
+			const ctrlOrMeta = browserEvent.ctrlKey || browserEvent.metaKey
+
+			if (ctrlOrMeta && lowerKey !== "r") return
+
+			if (key === "Escape") {
+				event.preventDefault()
+				event.stopPropagation()
+				vimPendingActionRef.current = null
+				setVimInteractionMode("normal")
+				return
+			}
+
+			if (vimModeRef.current === "insert") {
+				return
+			}
+
+			event.preventDefault()
+			event.stopPropagation()
+
+			const pendingAction = vimPendingActionRef.current
+			if (pendingAction) {
+				vimPendingActionRef.current = null
+				if (pendingAction === "d" && lowerKey === "d") {
+					deleteCurrentLine(editor)
+				}
+				if (pendingAction === "y" && lowerKey === "y") {
+					yankCurrentLine(editor)
+				}
+				return
+			}
+
+			if (ctrlOrMeta && lowerKey === "r") {
+				editor.trigger("nimbus-vim", "redo", null)
+				return
+			}
+
+			switch (key) {
+				case "i":
+					setVimInteractionMode("insert")
+					return
+				case "a": {
+					const model = editor.getModel()
+					const position = editor.getPosition()
+					if (model && position) {
+						const maxColumn = model.getLineMaxColumn(position.lineNumber)
+						const nextColumn =
+							position.column < maxColumn ? position.column + 1 : position.column
+						editor.setPosition({
+							lineNumber: position.lineNumber,
+							column: nextColumn,
+						})
+					}
+					setVimInteractionMode("insert")
+					return
+				}
+				case "o": {
+					const model = editor.getModel()
+					const monaco = monacoRef.current
+					const position = editor.getPosition()
+					if (model && monaco && position) {
+						const maxColumn = model.getLineMaxColumn(position.lineNumber)
+						const insertRange = new monaco.Range(
+							position.lineNumber,
+							maxColumn,
+							position.lineNumber,
+							maxColumn,
+						)
+						editor.executeEdits("nimbus-vim", [{ range: insertRange, text: "\n" }])
+						editor.setPosition({
+							lineNumber: position.lineNumber + 1,
+							column: 1,
+						})
+					}
+					setVimInteractionMode("insert")
+					return
+				}
+				case "O": {
+					const monaco = monacoRef.current
+					const position = editor.getPosition()
+					if (monaco && position) {
+						const insertRange = new monaco.Range(
+							position.lineNumber,
+							1,
+							position.lineNumber,
+							1,
+						)
+						editor.executeEdits("nimbus-vim", [{ range: insertRange, text: "\n" }])
+						editor.setPosition({
+							lineNumber: position.lineNumber,
+							column: 1,
+						})
+					}
+					setVimInteractionMode("insert")
+					return
+				}
+				case "h":
+				case "ArrowLeft":
+					editor.trigger("nimbus-vim", "cursorLeft", null)
+					return
+				case "j":
+				case "ArrowDown":
+					editor.trigger("nimbus-vim", "cursorDown", null)
+					return
+				case "k":
+				case "ArrowUp":
+					editor.trigger("nimbus-vim", "cursorUp", null)
+					return
+				case "l":
+				case "ArrowRight":
+					editor.trigger("nimbus-vim", "cursorRight", null)
+					return
+				case "0":
+				case "Home":
+					editor.trigger("nimbus-vim", "cursorLineStart", null)
+					return
+				case "$":
+				case "End":
+					editor.trigger("nimbus-vim", "cursorLineEnd", null)
+					return
+				case "x":
+				case "Delete":
+					editor.trigger("nimbus-vim", "deleteRight", null)
+					return
+				case "u":
+					editor.trigger("nimbus-vim", "undo", null)
+					return
+				case "p":
+					pasteVimYank(editor)
+					return
+				case "d":
+					vimPendingActionRef.current = "d"
+					return
+				case "y":
+					vimPendingActionRef.current = "y"
+					return
+				default:
+					return
+			}
+		})
+	}
+
+	const applyKeybindingMode = (
+		mode: KeybindingMode,
+		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
+	) => {
+		const editor = editorOverride ?? editorRef.current
+		if (!editor) return
+
+		if (mode === "vim") {
+			startVimKeybindings(editor)
+			return
+		}
+
+		stopVimKeybindings()
+	}
 
 	const disposeSimpleCompletionProviders = () => {
 		for (const disposable of completionDisposablesRef.current) {
@@ -973,6 +1248,31 @@ function App() {
 		editorRef.current = editor
 		refreshSimpleCompletionProviders(settingsCompletionsEnabled, monaco)
 		applyCompletionEditorOptions(settingsCompletionsEnabled, editor)
+		applyKeybindingMode(settingsKeybinding, editor)
+		const initialPosition = editor.getPosition()
+		if (initialPosition) {
+			setEditorCursor({
+				lineNumber: initialPosition.lineNumber,
+				column: initialPosition.column,
+			})
+		}
+
+		const cursorDisposable = editor.onDidChangeCursorPosition((event: {
+			position: { lineNumber: number; column: number }
+		}) => {
+			setEditorCursor({
+				lineNumber: event.position.lineNumber,
+				column: event.position.column,
+			})
+		})
+
+		editor.onDidDispose(() => {
+			cursorDisposable.dispose()
+			if (editorRef.current === editor) {
+				editorRef.current = null
+			}
+			stopVimKeybindings()
+		})
 	}
 
 	const fitRunnoTerminal = () => {
@@ -1229,6 +1529,24 @@ function App() {
 	}, [settingsCompletionsEnabled])
 
 	useEffect(() => {
+		applyKeybindingMode(settingsKeybinding)
+	}, [settingsKeybinding])
+
+	useEffect(() => {
+		const editor = editorRef.current
+		const position = editor?.getPosition()
+		if (position) {
+			setEditorCursor({
+				lineNumber: position.lineNumber,
+				column: position.column,
+			})
+			return
+		}
+
+		setEditorCursor({ lineNumber: 1, column: 1 })
+	}, [activeFilePath])
+
+	useEffect(() => {
 		let cancelled = false
 
 		const loadWorkspace = async () => {
@@ -1270,6 +1588,7 @@ function App() {
 			for (const timer of Object.values(timers)) {
 				clearTimeout(timer)
 			}
+			stopVimKeybindings()
 			for (const disposable of completionDisposablesRef.current) {
 				disposable.dispose()
 			}
@@ -1931,8 +2250,12 @@ function App() {
 											>
 												<option value="default">Default</option>
 												<option value="vim">Vim</option>
-												<option value="emacs">Emacs</option>
 											</select>
+											{settingsKeybinding === "vim" && (
+												<span className="settings-meta">
+													Vim mode: {vimMode === "normal" ? "NORMAL" : "INSERT"}
+												</span>
+											)}
 										</div>
 										<div className="settings-group">
 											<div className="settings-toggle-row">
@@ -2006,6 +2329,21 @@ function App() {
 									/>
 								)}
 							</div>
+							{!isSettingsTabActive && (
+								<div className="editor-statusbar" aria-live="polite">
+									<div className="editor-status-left">
+										<span>Lines: {editorStats.lines}</span>
+										<span>Words: {editorStats.words}</span>
+										<span>Chars: {editorStats.chars}</span>
+										<span>
+											Ln {editorCursor.lineNumber}, Col {editorCursor.column}
+										</span>
+									</div>
+									<div className="editor-status-right">
+										<span>[ ---{keybindingModeLabel}--- ]</span>
+									</div>
+								</div>
+							)}
 							{!selectedFile && !isSettingsTabActive && (
 								<div className="editor-empty">
 									Select a file in the explorer to open it in a tab.

@@ -344,11 +344,39 @@ body,
 	min-width: 0;
 }
 
+.editor-statusbar {
+	height: 24px;
+	border-top: 1px solid var(--tn-border);
+	background: var(--tn-bg-dark);
+	color: var(--tn-muted);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 10px;
+	font-size: 11px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	flex-shrink: 0;
+	gap: 10px;
+}
+
+.editor-status-left,
+.editor-status-right {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	white-space: nowrap;
+}
+
+.editor-status-right {
+	color: var(--tn-text);
+	font-weight: 600;
+}
+
 .editor-empty {
 	position: absolute;
 	top: 34px;
 	right: 0;
-	bottom: 0;
+	bottom: 24px;
 	left: 0;
 	display: flex;
 	align-items: center;
@@ -357,6 +385,11 @@ body,
 	color: var(--tn-comment);
 	font-size: 13px;
 	pointer-events: none;
+}
+
+.app-root.theme-light .editor-empty {
+	background: rgba(239, 241, 245, 0.94);
+	color: var(--tn-muted);
 }
 
 .settings-panel {
