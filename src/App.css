@@ -17,6 +17,26 @@
 	--tn-orange: #ff9e64;
 }
 
+.app-root.theme-light {
+	/* Catppuccin Latte */
+	--tn-bg: #eff1f5;
+	--tn-bg-dark: #e6e9ef;
+	--tn-bg-soft: #dce0e8;
+	--tn-surface: #ccd0da;
+	--tn-surface-2: #bcc0cc;
+	--tn-border: #acb0be;
+	--tn-text: #4c4f69;
+	--tn-muted: #6c6f85;
+	--tn-comment: #8c8fa1;
+	--tn-blue: #1e66f5;
+	--tn-cyan: #04a5e5;
+	--tn-purple: #8839ef;
+	--tn-green: #40a02b;
+	--tn-yellow: #df8e1d;
+	--tn-red: #d20f39;
+	--tn-orange: #fe640b;
+}
+
 html,
 body,
 #root {
@@ -374,6 +394,11 @@ body,
 	color: var(--tn-muted);
 }
 
+.settings-meta {
+	font-size: 11px;
+	color: var(--tn-comment);
+}
+
 .settings-select {
 	background: var(--tn-bg-soft);
 	color: var(--tn-text);
@@ -497,6 +522,18 @@ body,
 .explorer-btn.danger {
 	border-color: #8f4e66;
 	color: #f4b8c9;
+}
+
+.app-root.theme-light .explorer-btn.danger {
+	background: #f2d7de;
+	border-color: #b42346;
+	color: #7a102b;
+}
+
+.app-root.theme-light .explorer-btn.danger:hover {
+	background: #edc6d1;
+	border-color: #9f1d3e;
+	color: #661024;
 }
 
 .explorer-tree {

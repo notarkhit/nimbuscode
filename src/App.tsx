@@ -238,9 +238,73 @@ print(f"Hello, {name or 'friend'}!")
 ]
 
 const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
+const CATPPUCCIN_LATTE_THEME = "catppuccin-latte-nimbus"
 const SETTINGS_TAB_ID = "__nimbus_settings__"
 
 type KeybindingMode = "default" | "vim" | "emacs"
+type ThemeMode = "dark" | "light"
+const THEME_STORAGE_KEY = "nimbuscode:settings:theme"
+
+const readStoredTheme = (): ThemeMode => {
+	if (typeof window === "undefined") return "dark"
+
+	try {
+		const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark"
+	} catch {
+		return "dark"
+	}
+}
+
+type TerminalTheme = Record<string, string>
+
+const TOKYO_NIGHT_TERMINAL_THEME: TerminalTheme = {
+	background: "#1a1b26",
+	foreground: "#c0caf5",
+	cursor: "#7aa2f7",
+	cursorAccent: "#1a1b26",
+	selection: "#33467c66",
+	black: "#15161e",
+	red: "#f7768e",
+	green: "#9ece6a",
+	yellow: "#e0af68",
+	blue: "#7aa2f7",
+	magenta: "#bb9af7",
+	cyan: "#7dcfff",
+	white: "#a9b1d6",
+	brightBlack: "#414868",
+	brightRed: "#f7768e",
+	brightGreen: "#9ece6a",
+	brightYellow: "#e0af68",
+	brightBlue: "#7aa2f7",
+	brightMagenta: "#bb9af7",
+	brightCyan: "#7dcfff",
+	brightWhite: "#c0caf5",
+}
+
+const CATPPUCCIN_LATTE_TERMINAL_THEME: TerminalTheme = {
+	background: "#eff1f5",
+	foreground: "#4c4f69",
+	cursor: "#1e66f5",
+	cursorAccent: "#eff1f5",
+	selection: "#bcc0cc66",
+	black: "#5c5f77",
+	red: "#d20f39",
+	green: "#40a02b",
+	yellow: "#df8e1d",
+	blue: "#1e66f5",
+	magenta: "#8839ef",
+	cyan: "#179299",
+	white: "#acb0be",
+	brightBlack: "#6c6f85",
+	brightRed: "#d20f39",
+	brightGreen: "#40a02b",
+	brightYellow: "#df8e1d",
+	brightBlue: "#1e66f5",
+	brightMagenta: "#8839ef",
+	brightCyan: "#179299",
+	brightWhite: "#4c4f69",
+}
 
 type SimpleCompletionKind =
 	| "keyword"
@@ -432,7 +496,7 @@ const registerSimpleLanguageCompletions = (
 		}),
 	)
 
-const applyTokyoNightMonacoTheme = (monaco: Monaco) => {
+const defineMonacoThemes = (monaco: Monaco) => {
 	monaco.editor.defineTheme(TOKYO_NIGHT_THEME, {
 		base: "vs-dark",
 		inherit: true,
@@ -472,6 +536,48 @@ const applyTokyoNightMonacoTheme = (monaco: Monaco) => {
 			"scrollbarSlider.background": "#3B426188",
 			"scrollbarSlider.hoverBackground": "#565F89AA",
 			"scrollbarSlider.activeBackground": "#7AA2F7AA",
+		},
+	})
+
+	monaco.editor.defineTheme(CATPPUCCIN_LATTE_THEME, {
+		base: "vs",
+		inherit: true,
+		rules: [
+			{ token: "", foreground: "4C4F69", background: "EFF1F5" },
+			{ token: "comment", foreground: "8C8FA1" },
+			{ token: "keyword", foreground: "8839EF" },
+			{ token: "operator", foreground: "179299" },
+			{ token: "string", foreground: "40A02B" },
+			{ token: "number", foreground: "FE640B" },
+			{ token: "constant", foreground: "FE640B" },
+			{ token: "type", foreground: "DF8E1D" },
+			{ token: "function", foreground: "1E66F5" },
+			{ token: "variable", foreground: "4C4F69" },
+		],
+		colors: {
+			"editor.background": "#EFF1F5",
+			"editor.foreground": "#4C4F69",
+			"editorLineNumber.foreground": "#8C8FA1",
+			"editorLineNumber.activeForeground": "#1E66F5",
+			"editorCursor.foreground": "#4C4F69",
+			"editor.selectionBackground": "#CCD0DA",
+			"editor.inactiveSelectionBackground": "#DCE0E8",
+			"editor.selectionHighlightBackground": "#BCC0CCAA",
+			"editor.wordHighlightBackground": "#BCC0CC77",
+			"editor.wordHighlightStrongBackground": "#1E66F533",
+			"editor.findMatchBackground": "#1E66F544",
+			"editor.findMatchHighlightBackground": "#1E66F522",
+			"editorIndentGuide.background1": "#CCD0DA",
+			"editorIndentGuide.activeBackground1": "#ACB0BE",
+			"editorBracketMatch.background": "#1E66F522",
+			"editorBracketMatch.border": "#1E66F5",
+			"editorGutter.background": "#EFF1F5",
+			"editorWhitespace.foreground": "#ACB0BE",
+			"editorWidget.background": "#E6E9EF",
+			"editorWidget.border": "#ACB0BE",
+			"scrollbarSlider.background": "#ACB0BE88",
+			"scrollbarSlider.hoverBackground": "#8C8FA1AA",
+			"scrollbarSlider.activeBackground": "#1E66F5AA",
 		},
 	})
 }
@@ -786,6 +892,7 @@ function App() {
 	const [runError, setRunError] = useState<string | null>(null)
 	const [settingsKeybinding, setSettingsKeybinding] =
 		useState<KeybindingMode>("default")
+	const [settingsTheme, setSettingsTheme] = useState<ThemeMode>(readStoredTheme)
 	const [settingsCompletionsEnabled, setSettingsCompletionsEnabled] =
 		useState(true)
 	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
@@ -819,6 +926,8 @@ function App() {
 	const selectedEditorLanguage = selectedFile
 		? getEditorLanguageForPath(selectedFile.path)
 		: "plaintext"
+	const selectedMonacoTheme =
+		settingsTheme === "light" ? CATPPUCCIN_LATTE_THEME : TOKYO_NIGHT_THEME
 
 	const disposeSimpleCompletionProviders = () => {
 		for (const disposable of completionDisposablesRef.current) {
@@ -1033,6 +1142,61 @@ function App() {
 
 		return () => cancelAnimationFrame(frame)
 	}, [selectedRuntime, terminalKey])
+
+	useEffect(() => {
+		const applyRunnoTerminalTheme = () => {
+			const runnoTerminal = runnoRef.current?.shadowRoot?.querySelector(
+				"runno-terminal",
+			) as
+				| (HTMLElement & {
+						terminal?: {
+							setOption?: (key: string, value: unknown) => void
+							options?: { theme?: unknown }
+						}
+						shadowRoot?: ShadowRoot | null
+					})
+				| null
+			if (!runnoTerminal) return
+
+			const theme =
+				settingsTheme === "light"
+					? CATPPUCCIN_LATTE_TERMINAL_THEME
+					: TOKYO_NIGHT_TERMINAL_THEME
+
+			const container = runnoTerminal.shadowRoot?.getElementById("container")
+			if (container) {
+				container.style.background = theme.background
+			}
+
+			const terminal = runnoTerminal.terminal
+			if (!terminal) return
+
+			if (typeof terminal.setOption === "function") {
+				terminal.setOption("theme", theme)
+				return
+			}
+
+			if (terminal.options) {
+				terminal.options.theme = theme
+			}
+		}
+
+		const frame = requestAnimationFrame(applyRunnoTerminalTheme)
+		const timer = setTimeout(applyRunnoTerminalTheme, 80)
+
+		return () => {
+			cancelAnimationFrame(frame)
+			clearTimeout(timer)
+		}
+	}, [settingsTheme, selectedRuntime, terminalKey])
+
+	useEffect(() => {
+		try {
+			window.localStorage.setItem(THEME_STORAGE_KEY, settingsTheme)
+		} catch {
+			// Ignore storage failures (private mode / disabled storage)
+		}
+	}, [settingsTheme])
 
 	useEffect(() => {
 		if (!runError) return
@@ -1553,7 +1717,9 @@ function App() {
 	/* ───────── Render ───────── */
 
 	return (
-		<div className="app-root">
+		<div
+			className={`app-root ${settingsTheme === "light" ? "theme-light" : "theme-dark"}`}
+		>
 			<header className="navbar">
 				<div className="navbar-left">
 					<span className="logo">
@@ -1746,8 +1912,8 @@ function App() {
 									<div className="settings-panel">
 										<div className="settings-title">Editor Settings</div>
 										<p className="settings-subtitle">
-											These controls are placeholders for now and do not change
-											editor behavior yet.
+											Theme applies to site, editor, and output console. Other
+											controls remain experimental.
 										</p>
 										<div className="settings-group">
 											<label className="settings-label" htmlFor="keybinding-mode">
@@ -1767,6 +1933,33 @@ function App() {
 												<option value="vim">Vim</option>
 												<option value="emacs">Emacs</option>
 											</select>
+										</div>
+										<div className="settings-group">
+											<div className="settings-toggle-row">
+												<span className="settings-label">Light theme</span>
+												<label className="settings-switch" htmlFor="theme-toggle">
+													<input
+														id="theme-toggle"
+														type="checkbox"
+														className="settings-switch-input"
+														checked={settingsTheme === "light"}
+														onChange={(event) => {
+															setSettingsTheme(
+																event.target.checked ? "light" : "dark",
+															)
+														}}
+													/>
+													<span
+														className="settings-switch-track"
+														aria-hidden="true"
+													>
+														<span className="settings-switch-thumb" />
+													</span>
+												</label>
+											</div>
+											<span className="settings-meta">
+												{settingsTheme === "light" ? "Light" : "Dark"} selected
+											</span>
 										</div>
 										<div className="settings-group">
 											<div className="settings-toggle-row">
@@ -1798,8 +1991,8 @@ function App() {
 										<Editor
 											path={selectedFile?.path}
 											height="100%"
-											theme={TOKYO_NIGHT_THEME}
-											beforeMount={applyTokyoNightMonacoTheme}
+											theme={selectedMonacoTheme}
+											beforeMount={defineMonacoThemes}
 											onMount={handleEditorMount}
 											language={selectedEditorLanguage}
 											value={selectedFile?.content ?? ""}
