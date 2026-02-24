@@ -952,12 +952,7 @@ function App() {
 
 		return { lines, words, chars }
 	}, [selectedFile])
-	const keybindingModeLabel =
-		settingsKeybinding === "vim"
-			? vimMode === "normal"
-				? "NORMAL"
-				: "INSERT"
-			: "DEFAULT"
+	const keybindingModeLabel = vimMode === "normal" ? "NORMAL" : "INSERT"
 
 	const applyEditorCursorStyle = (
 		keybindingOverride?: KeybindingMode,
@@ -2705,9 +2700,11 @@ function App() {
 											Ln {editorCursor.lineNumber}, Col {editorCursor.column}
 										</span>
 									</div>
-									<div className="editor-status-right">
-										<span>[ ---{keybindingModeLabel}--- ]</span>
-									</div>
+									{settingsKeybinding === "vim" && (
+										<div className="editor-status-right">
+											<span>[ ---{keybindingModeLabel}--- ]</span>
+										</div>
+									)}
 								</div>
 							)}
 							{!selectedFile && !isSettingsTabActive && (

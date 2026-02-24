@@ -368,7 +368,7 @@ body,
 }
 
 .editor-status-right {
-	color: var(--tn-text);
+	color: var(--tn-border);
 	font-weight: 600;
 }
 
