@@ -20,7 +20,8 @@ import {
 	unique,
 } from "../lib/helpers"
 import { initialWorkspace, SETTINGS_TAB_ID } from "../lib/constants"
-import type { PendingCreation } from "../lib/types"
+import { getBaseName } from "../lib/helpers"
+import type { PendingCreation, PendingRename } from "../lib/types"
 
 /* ───────── Return type ───────── */
 
@@ -32,6 +33,7 @@ export interface UseWorkspaceReturn {
 	openTabs: string[]
 	expandedFolders: string[]
 	pendingCreation: PendingCreation | null
+	pendingRename: PendingRename | null
 	workspaceError: string | null
 	isWorkspaceReady: boolean
 	// Derived
@@ -41,6 +43,7 @@ export interface UseWorkspaceReturn {
 	folderPaths: string[]
 	// Setters (for cross-component needs)
 	setPendingCreation: React.Dispatch<React.SetStateAction<PendingCreation | null>>
+	setPendingRename: React.Dispatch<React.SetStateAction<PendingRename | null>>
 	setWorkspaceError: React.Dispatch<React.SetStateAction<string | null>>
 	// Actions
 	selectPath: (path: string) => void
@@ -50,6 +53,8 @@ export interface UseWorkspaceReturn {
 	toggleFolder: (path: string) => void
 	beginCreateEntry: (kind: "file" | "folder") => void
 	commitPendingCreation: (overrideValue?: string) => Promise<void>
+	beginRename: () => void
+	commitRename: (overrideValue?: string) => Promise<void>
 	deleteSelected: () => Promise<void>
 	onEditorChange: (value: string | undefined) => void
 }
@@ -65,6 +70,7 @@ export function useWorkspace(): UseWorkspaceReturn {
 	const [openTabs, setOpenTabs] = useState<string[]>([])
 	const [expandedFolders, setExpandedFolders] = useState<string[]>(["/"]);
 	const [pendingCreation, setPendingCreation] = useState<PendingCreation | null>(null)
+	const [pendingRename, setPendingRename] = useState<PendingRename | null>(null)
 	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
 	const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
 
@@ -374,6 +380,94 @@ export function useWorkspace(): UseWorkspaceReturn {
 	}
 
 
+	const beginRename = () => {
+		if (!selectedPath || selectedPath === "/") return
+		setPendingRename({ path: selectedPath, value: getBaseName(selectedPath) })
+		setWorkspaceError(null)
+	}
+
+	const commitRename = async (overrideValue?: string) => {
+		if (!pendingRename) return
+		const rawInput = (overrideValue ?? pendingRename.value).trim()
+		const oldPath = pendingRename.path
+		setPendingRename(null)
+
+		if (!rawInput || rawInput === getBaseName(oldPath)) return
+
+		const parentPath = getParentPath(oldPath) ?? "/"
+		const newPath = joinPath(parentPath, rawInput)
+
+		if (fileByPath.has(newPath) || folderPathSet.has(newPath)) {
+			setWorkspaceError(`Path already exists: ${newPath}`)
+			return
+		}
+
+		const isFile = fileByPath.has(oldPath)
+		const now = Date.now()
+
+		if (isFile) {
+			const file = fileByPath.get(oldPath)
+			if (!file) return
+			const renamedFile: WorkspaceFileEntry = { ...file, path: newPath, updatedAt: now }
+			setEntries((prev) =>
+				sortWorkspaceEntries(prev.map((e) => (e.path === oldPath ? renamedFile : e))),
+			)
+			setOpenTabs((prev) => prev.map((t) => (t === oldPath ? newPath : t)))
+			setActiveFilePath((prev) => (prev === oldPath ? newPath : prev))
+			setSelectedPath((prev) => (prev === oldPath ? newPath : prev))
+			try {
+				await deleteWorkspacePaths([oldPath])
+				await putWorkspaceEntries([renamedFile])
+			} catch (error) {
+				setWorkspaceError(`Failed to rename: ${String(error)}`)
+			}
+		} else {
+			// Folder rename: update the folder and all descendant paths
+			const prefix = `${oldPath}/`
+			const renamePath = (p: string) =>
+				p === oldPath ? newPath : newPath + p.slice(oldPath.length)
+
+			const toRename = entries.filter(
+				(e) => e.path === oldPath || e.path.startsWith(prefix),
+			)
+			const renamedEntries = toRename.map((e) => ({
+				...e,
+				path: renamePath(e.path),
+				updatedAt: now,
+			}))
+			const oldPaths = toRename.map((e) => e.path)
+
+			setEntries((prev) => {
+				const unchanged = prev.filter(
+					(e) => e.path !== oldPath && !e.path.startsWith(prefix),
+				)
+				return sortWorkspaceEntries([...unchanged, ...renamedEntries])
+			})
+			setOpenTabs((prev) =>
+				prev.map((t) =>
+					t === oldPath || t.startsWith(prefix) ? renamePath(t) : t,
+				),
+			)
+			setActiveFilePath((prev) =>
+				prev && (prev === oldPath || prev.startsWith(prefix)) ? renamePath(prev) : prev,
+			)
+			setSelectedPath((prev) =>
+				prev && (prev === oldPath || prev.startsWith(prefix)) ? renamePath(prev) : prev,
+			)
+			setExpandedFolders((prev) =>
+				prev.map((f) =>
+					f === oldPath || f.startsWith(prefix) ? renamePath(f) : f,
+				),
+			)
+			try {
+				await deleteWorkspacePaths(oldPaths)
+				await putWorkspaceEntries(renamedEntries)
+			} catch (error) {
+				setWorkspaceError(`Failed to rename: ${String(error)}`)
+			}
+		}
+	}
+
 	return {
 		entries,
 		selectedPath,
@@ -381,6 +475,7 @@ export function useWorkspace(): UseWorkspaceReturn {
 		openTabs,
 		expandedFolders,
 		pendingCreation,
+		pendingRename,
 		workspaceError,
 		isWorkspaceReady,
 		fileEntries,
@@ -388,6 +483,7 @@ export function useWorkspace(): UseWorkspaceReturn {
 		folderPathSet,
 		folderPaths,
 		setPendingCreation,
+		setPendingRename,
 		setWorkspaceError,
 		selectPath,
 		activateTab,
@@ -396,6 +492,8 @@ export function useWorkspace(): UseWorkspaceReturn {
 		toggleFolder,
 		beginCreateEntry,
 		commitPendingCreation,
+		beginRename,
+		commitRename,
 		deleteSelected,
 		onEditorChange,
 	}

@@ -1,4 +1,85 @@
-:root {
+/* VS Code Dark */
+.ide-root.theme-vs-dark {
+	--tn-bg: #1e1e1e;
+	--tn-bg-dark: #252526;
+	--tn-bg-soft: #2d2d2d;
+	--tn-surface: #37373d;
+	--tn-surface-2: #3e3e42;
+	--tn-border: #454545;
+	--tn-text: #cccccc;
+	--tn-muted: #858585;
+	--tn-comment: #6a9955;
+	--tn-blue: #569cd6;
+	--tn-cyan: #4ec9b0;
+	--tn-purple: #c586c0;
+	--tn-green: #b5cea8;
+	--tn-yellow: #dcdcaa;
+	--tn-red: #f44747;
+	--tn-orange: #ce9178;
+}
+
+/* VS Code Light */
+.ide-root.theme-vs-light {
+	--tn-bg: #ffffff;
+	--tn-bg-dark: #f3f3f3;
+	--tn-bg-soft: #f8f8f8;
+	--tn-surface: #e8e8e8;
+	--tn-surface-2: #d4d4d4;
+	--tn-border: #cccccc;
+	--tn-text: #333333;
+	--tn-muted: #666666;
+	--tn-comment: #008000;
+	--tn-blue: #0000ff;
+	--tn-cyan: #098658;
+	--tn-purple: #af00db;
+	--tn-green: #795e26;
+	--tn-yellow: #795e26;
+	--tn-red: #a31515;
+	--tn-orange: #a31515;
+}
+
+/* GitHub Dark */
+.ide-root.theme-github-dark {
+	--tn-bg: #0d1117;
+	--tn-bg-dark: #010409;
+	--tn-bg-soft: #161b22;
+	--tn-surface: #21262d;
+	--tn-surface-2: #30363d;
+	--tn-border: #30363d;
+	--tn-text: #c9d1d9;
+	--tn-muted: #8b949e;
+	--tn-comment: #8b949e;
+	--tn-blue: #58a6ff;
+	--tn-cyan: #39c5cf;
+	--tn-purple: #d2a8ff;
+	--tn-green: #3fb950;
+	--tn-yellow: #d29922;
+	--tn-red: #ff7b72;
+	--tn-orange: #ffa657;
+}
+
+/* GitHub Light */
+.ide-root.theme-github-light {
+	--tn-bg: #ffffff;
+	--tn-bg-dark: #f6f8fa;
+	--tn-bg-soft: #ffffff;
+	--tn-surface: #f3f4f6;
+	--tn-surface-2: #ebecf0;
+	--tn-border: #d0d7de;
+	--tn-text: #24292f;
+	--tn-muted: #57606a;
+	--tn-comment: #6e7781;
+	--tn-blue: #0969da;
+	--tn-cyan: #1b7c83;
+	--tn-purple: #8250df;
+	--tn-green: #1a7f37;
+	--tn-yellow: #9a6700;
+	--tn-red: #cf222e;
+	--tn-orange: #bc4c00;
+}
+
+/* Tokyo Night */
+.ide-root.theme-tokyo-night {
 	--tn-bg: #1a1b26;
 	--tn-bg-dark: #16161e;
 	--tn-bg-soft: #1f2335;
@@ -17,8 +98,8 @@
 	--tn-orange: #ff9e64;
 }
 
-.app-root.theme-light {
-	/* Catppuccin Latte */
+/* Catppuccin Latte */
+.ide-root.theme-catppuccin-latte {
 	--tn-bg: #eff1f5;
 	--tn-bg-dark: #e6e9ef;
 	--tn-bg-soft: #dce0e8;
@@ -46,7 +127,7 @@ body,
 	padding: 0;
 }
 
-.app-root {
+.ide-root {
 	height: 100%;
 	display: flex;
 	flex-direction: column;
@@ -219,15 +300,7 @@ body,
 
 /* ───────── Workspace ───────── */
 
-.workspace-area {
-	flex: 1;
-	display: flex;
-	flex-direction: row;
-	min-height: 0;
-	min-width: 0;
-	width: 100%;
-	height: 100%;
-}
+.workspace-area { flex: 1; width: 100%; min-width: 0; min-height: 0; }
 
 .workspace-area > * {
 	min-width: 0;
@@ -344,34 +417,7 @@ body,
 	min-width: 0;
 }
 
-.editor-statusbar {
-	height: 24px;
-	border-top: 1px solid var(--tn-border);
-	background: var(--tn-bg-dark);
-	color: var(--tn-muted);
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 0 10px;
-	font-size: 11px;
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-	flex-shrink: 0;
-	gap: 10px;
-}
-
 .editor-status-left,
-.editor-status-right {
-	display: inline-flex;
-	align-items: center;
-	gap: 10px;
-	white-space: nowrap;
-}
-
-.editor-status-right {
-	color: var(--tn-border);
-	font-weight: 600;
-}
-
 .editor-empty {
 	position: absolute;
 	top: 34px;
@@ -381,15 +427,10 @@ body,
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: rgba(26, 27, 38, 0.92);
-	color: var(--tn-comment);
+	background: var(--tn-bg);
+	color: var(--tn-muted);
 	font-size: 13px;
 	pointer-events: none;
-}
-
-.app-root.theme-light .editor-empty {
-	background: rgba(239, 241, 245, 0.94);
-	color: var(--tn-muted);
 }
 
 .settings-panel {
@@ -557,13 +598,13 @@ body,
 	color: #f4b8c9;
 }
 
-.app-root.theme-light .explorer-btn.danger {
+.ide-root.theme-light .explorer-btn.danger {
 	background: #f2d7de;
 	border-color: #b42346;
 	color: #7a102b;
 }
 
-.app-root.theme-light .explorer-btn.danger:hover {
+.ide-root.theme-light .explorer-btn.danger:hover {
 	background: #edc6d1;
 	border-color: #9f1d3e;
 	color: #661024;
@@ -718,6 +759,19 @@ body,
 	--runno-editor-max-height: 0;
 	--runno-terminal-min-height: 100%;
 	--runno-terminal-height: 100%;
+	--runno-terminal-background: transparent;
+	background: transparent;
+}
+
+runno-run::part(terminal) {
+	background: transparent !important;
+	padding: 0 !important;
+}
+
+runno-terminal {
+	background: transparent !important;
+	padding: 0 !important;
+	margin: 0 !important;
 }
 
 .console-error {
@@ -762,4 +816,167 @@ body,
 	to {
 		transform: rotate(360deg);
 	}
+}
+
+/* ───────── VS Code Layout ───────── */
+
+.ide-main {
+	display: flex;
+	flex-direction: row;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+	background: var(--tn-bg);
+}
+
+.title-bar {
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 10px;
+	background: var(--tn-bg-dark);
+	border-bottom: 1px solid var(--tn-border);
+	user-select: none;
+	font-size: 13px;
+	color: var(--tn-text);
+}
+
+.title-bar-left {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.title-bar-right {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.activity-bar {
+	width: 48px;
+	flex-shrink: 0;
+	background: var(--tn-bg-dark);
+	border-right: 1px solid var(--tn-border);
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 0;
+}
+
+.activity-btn {
+	background: none;
+	border: none;
+	color: var(--tn-muted);
+	cursor: pointer;
+	padding: 8px;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.activity-btn:hover {
+	color: var(--tn-text);
+}
+
+.activity-btn.active {
+	color: var(--tn-text);
+	border-left: 2px solid var(--tn-blue);
+	border-radius: 0;
+}
+
+.status-bar {
+	height: 22px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 10px;
+	background: var(--tn-bg-dark);
+	color: var(--tn-text);
+	font-size: 12px;
+	user-select: none;
+}
+
+.status-bar-left, .status-bar-right {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.status-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.status-item.vim-mode.normal {
+	color: var(--tn-purple);
+	font-weight: bold;
+}
+.status-item.vim-mode.insert {
+	color: var(--tn-blue);
+	font-weight: bold;
+}
+
+/* ───────── Panel (Console) Tabs ───────── */
+.panel-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid var(--tn-border);
+	background: var(--tn-bg-dark);
+}
+
+.panel-tabs {
+	display: flex;
+	align-items: center;
+}
+
+.panel-tab {
+	background: none;
+	border: none;
+	color: var(--tn-muted);
+	padding: 6px 12px;
+	font-size: 11px;
+	letter-spacing: 1px;
+	cursor: pointer;
+	text-transform: uppercase;
+	font-family: inherit;
+}
+
+.panel-tab.active {
+	color: var(--tn-text);
+	border-bottom: 1px solid var(--tn-blue);
+}
+
+.panel-actions {
+	display: flex;
+	align-items: center;
+	padding-right: 8px;
+}
+.panel-action-btn {
+	background: none;
+	border: none;
+	color: var(--tn-muted);
+	cursor: pointer;
+	padding: 4px;
+	display: flex;
+	align-items: center;
+	border-radius: 4px;
+}
+.panel-action-btn:hover {
+	color: var(--tn-text);
+	background: var(--tn-surface-2);
+}
+
+.panel-action-btn:disabled,
+.panel-action-btn:disabled:hover {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: transparent;
+	color: var(--tn-muted);
 }

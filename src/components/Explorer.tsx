@@ -5,10 +5,11 @@ import {
 	FolderOpen,
 	FolderPlus,
 	FolderTree,
+	Pencil,
 	Trash2,
 } from "lucide-react"
 import type { WorkspaceFileEntry } from "../fileStore"
-import type { PendingCreation } from "../lib/types"
+import type { PendingCreation, PendingRename } from "../lib/types"
 import { getBaseName, getFileIconForPath } from "../lib/helpers"
 
 interface ExplorerProps {
@@ -19,14 +20,61 @@ interface ExplorerProps {
 	selectedPath: string | null
 	expandedFolders: string[]
 	pendingCreation: PendingCreation | null
+	pendingRename: PendingRename | null
 	workspaceError: string | null
 	onSelectPath: (path: string) => void
 	onToggleFolder: (path: string) => void
 	onBeginCreateFile: () => void
 	onBeginCreateFolder: () => void
+	onBeginRename: () => void
 	onDeleteSelected: () => void
 	onSetPendingCreation: (pending: PendingCreation | null) => void
 	onCommitPendingCreation: (value?: string) => void
+	onSetPendingRename: (rename: PendingRename | null) => void
+	onCommitRename: (value?: string) => void
+}
+
+/* ── Local path helper ── */
+
+function getParentPathLocal(path: string): string | null {
+	if (path === "/") return null
+	const slashIndex = path.lastIndexOf("/")
+	if (slashIndex <= 0) return "/"
+	return path.slice(0, slashIndex)
+}
+
+/* ── Inline rename input ── */
+
+function RenameInput({
+	initialValue,
+	onCommit,
+	onCancel,
+}: {
+	initialValue: string
+	onCommit: (value: string) => void
+	onCancel: () => void
+}) {
+	return (
+		<input
+			className="tree-create-input"
+			defaultValue={initialValue}
+			autoFocus
+			onBlur={(event) => {
+				onCommit(event.currentTarget.value)
+			}}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault()
+					onCancel()
+					return
+				}
+				if (event.key === "Enter") {
+					event.preventDefault()
+					onCommit(event.currentTarget.value)
+				}
+			}}
+		/>
+	)
 }
 
 /* ── Recursive tree renderer ── */
@@ -42,10 +90,13 @@ function renderTree(
 		selectedPath,
 		expandedFolders,
 		pendingCreation,
+		pendingRename,
 		onSelectPath,
 		onToggleFolder,
 		onSetPendingCreation,
 		onCommitPendingCreation,
+		onSetPendingRename,
+		onCommitRename,
 	} = props
 
 	const folders = folderPaths
@@ -61,6 +112,7 @@ function renderTree(
 			{folders.map((folderPath) => {
 				const expanded = expandedFolders.includes(folderPath)
 				const active = selectedPath === folderPath
+				const isRenamingThis = pendingRename?.path === folderPath
 
 				return (
 					<div key={folderPath}>
@@ -75,18 +127,33 @@ function renderTree(
 							>
 								{expanded ? "▾" : "▸"}
 							</button>
-							<button
-								type="button"
-								className="tree-entry folder"
-								onClick={() => onSelectPath(folderPath)}
-							>
-								{expanded ? (
-									<FolderOpen size={14} className="inline-icon tree-icon" />
-								) : (
-									<Folder size={14} className="inline-icon tree-icon" />
-								)}
-								{getBaseName(folderPath)}
-							</button>
+							{isRenamingThis ? (
+								<>
+									{expanded ? (
+										<FolderOpen size={14} className="inline-icon tree-icon" />
+									) : (
+										<Folder size={14} className="inline-icon tree-icon" />
+									)}
+									<RenameInput
+										initialValue={pendingRename.value}
+										onCommit={(value) => onCommitRename(value)}
+										onCancel={() => onSetPendingRename(null)}
+									/>
+								</>
+							) : (
+								<button
+									type="button"
+									className="tree-entry folder"
+									onClick={() => onSelectPath(folderPath)}
+								>
+									{expanded ? (
+										<FolderOpen size={14} className="inline-icon tree-icon" />
+									) : (
+										<Folder size={14} className="inline-icon tree-icon" />
+									)}
+									{getBaseName(folderPath)}
+								</button>
+							)}
 						</div>
 						{expanded ? renderTree(folderPath, depth + 1, props) : null}
 					</div>
@@ -137,6 +204,7 @@ function renderTree(
 
 			{files.map((fileEntry) => {
 				const active = selectedPath === fileEntry.path
+				const isRenamingThis = pendingRename?.path === fileEntry.path
 				const FileIcon = getFileIconForPath(fileEntry.path)
 
 				return (
@@ -146,14 +214,25 @@ function renderTree(
 						style={{ paddingLeft: `${8 + depth * 14}px` }}
 					>
 						<span className="tree-spacer" aria-hidden="true" />
-						<button
-							type="button"
-							className="tree-entry file"
-							onClick={() => onSelectPath(fileEntry.path)}
-						>
-							<FileIcon size={14} className="inline-icon tree-icon" />
-							{getBaseName(fileEntry.path)}
-						</button>
+						{isRenamingThis ? (
+							<>
+								<FileIcon size={14} className="inline-icon tree-icon" />
+								<RenameInput
+									initialValue={pendingRename.value}
+									onCommit={(value) => onCommitRename(value)}
+									onCancel={() => onSetPendingRename(null)}
+								/>
+							</>
+						) : (
+							<button
+								type="button"
+								className="tree-entry file"
+								onClick={() => onSelectPath(fileEntry.path)}
+							>
+								<FileIcon size={14} className="inline-icon tree-icon" />
+								{getBaseName(fileEntry.path)}
+							</button>
+						)}
 					</div>
 				)
 			})}
@@ -161,18 +240,19 @@ function renderTree(
 	)
 }
 
-/* Local helper to avoid importing from helpers to keep this file self-contained */
-function getParentPathLocal(path: string): string | null {
-	if (path === "/") return null
-	const slashIndex = path.lastIndexOf("/")
-	if (slashIndex <= 0) return "/"
-	return path.slice(0, slashIndex)
-}
-
 /* ── Component ── */
 
 export function Explorer(props: ExplorerProps) {
-	const { selectedPath, workspaceError, onBeginCreateFile, onBeginCreateFolder, onDeleteSelected } = props
+	const {
+		selectedPath,
+		workspaceError,
+		onBeginCreateFile,
+		onBeginCreateFolder,
+		onBeginRename,
+		onDeleteSelected,
+	} = props
+
+	const canRename = !!selectedPath && selectedPath !== "/"
 
 	return (
 		<aside className="explorer-pane">
@@ -197,6 +277,16 @@ export function Explorer(props: ExplorerProps) {
 					>
 						<FolderPlus size={14} className="inline-icon" />
 						+Folder
+					</button>
+					<button
+						type="button"
+						className="explorer-btn"
+						onClick={onBeginRename}
+						disabled={!canRename}
+						title="Rename selected (F2)"
+					>
+						<Pencil size={14} className="inline-icon" />
+						Rename
 					</button>
 					<button
 						type="button"

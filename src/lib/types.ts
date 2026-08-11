@@ -1,5 +1,11 @@
 export type KeybindingMode = "default" | "vim"
-export type ThemeMode = "dark" | "light"
+export type ThemeMode =
+	| "vs-dark"
+	| "vs-light"
+	| "tokyo-night"
+	| "catppuccin-latte"
+	| "github-dark"
+	| "github-light"
 export type VimInteractionMode = "insert" | "normal"
 export type EditorCursorPosition = { lineNumber: number; column: number }
 export type TerminalTheme = Record<string, string>
@@ -29,6 +35,11 @@ export type LanguageCompletionConfig = {
 export type PendingCreation = {
 	kind: "file" | "folder"
 	parentPath: string
+	value: string
+}
+
+export type PendingRename = {
+	path: string
 	value: string
 }
 

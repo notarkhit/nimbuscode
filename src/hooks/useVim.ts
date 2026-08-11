@@ -38,6 +38,15 @@ export function useVim(
 
 	const [vimMode, setVimMode] = useState<VimInteractionMode>("insert")
 
+	/* ── Clipboard helper ── */
+
+	// Fire-and-forget: sync vim internal register to system clipboard.
+	// Errors are silently swallowed (clipboard API may be unavailable in
+	// HTTP contexts or when the page doesn't have focus).
+	const writeToClipboard = (text: string) => {
+		navigator.clipboard?.writeText(text).catch(() => {})
+	}
+
 	/* ── Cursor style ── */
 
 	const applyEditorCursorStyle = (
@@ -204,6 +213,7 @@ export function useVim(
 		const yankedText = model.getValueInRange(yankRange)
 		vimYankedTextRef.current = `${yankedText}${endLine < lastLine ? "\n" : ""}`
 		vimYankWasLineRef.current = true
+		writeToClipboard(vimYankedTextRef.current)
 
 		const deletionRange =
 			endLine < lastLine
@@ -231,6 +241,7 @@ export function useVim(
 		const text = model.getValueInRange(range)
 		vimYankedTextRef.current = `${text}${endLine < lastLine ? "\n" : ""}`
 		vimYankWasLineRef.current = true
+		writeToClipboard(vimYankedTextRef.current)
 	}
 
 	/* ── Selection operations ── */
@@ -248,6 +259,7 @@ export function useVim(
 		if (model) {
 			vimYankedTextRef.current = model.getValueInRange(range)
 			vimYankWasLineRef.current = false
+			writeToClipboard(vimYankedTextRef.current)
 		}
 		editor.executeEdits("nimbus-vim", [{ range, text: "" }])
 		editor.setPosition({ lineNumber: range.startLineNumber, column: range.startColumn })
@@ -266,6 +278,7 @@ export function useVim(
 		if (!model) return
 		vimYankedTextRef.current = model.getValueInRange(range)
 		vimYankWasLineRef.current = false
+		writeToClipboard(vimYankedTextRef.current)
 		editor.setPosition({ lineNumber: range.endLineNumber, column: range.endColumn })
 	}
 

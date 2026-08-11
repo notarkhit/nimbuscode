@@ -1,10 +1,52 @@
 import type { Monaco } from "@monaco-editor/react"
-import type { TerminalTheme } from "./types"
+import type { TerminalTheme, ThemeMode } from "./types"
 
 /* ───────── Theme IDs ───────── */
 
 export const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
 export const CATPPUCCIN_LATTE_THEME = "catppuccin-latte-nimbus"
+export const VS_DARK_THEME = "vs-dark" // Built-in monaco theme, but we might customize it
+export const VS_LIGHT_THEME = "vs" // Built-in monaco theme
+export const GITHUB_DARK_THEME = "github-dark-nimbus"
+export const GITHUB_LIGHT_THEME = "github-light-nimbus"
+
+export const getMonacoTheme = (mode: ThemeMode): string => {
+	switch (mode) {
+		case "tokyo-night":
+			return TOKYO_NIGHT_THEME
+		case "catppuccin-latte":
+			return CATPPUCCIN_LATTE_THEME
+		case "vs-dark":
+			return VS_DARK_THEME
+		case "vs-light":
+			return VS_LIGHT_THEME
+		case "github-dark":
+			return GITHUB_DARK_THEME
+		case "github-light":
+			return GITHUB_LIGHT_THEME
+		default:
+			return VS_DARK_THEME
+	}
+}
+
+export const getTerminalTheme = (mode: ThemeMode): TerminalTheme => {
+	switch (mode) {
+		case "tokyo-night":
+			return TOKYO_NIGHT_TERMINAL_THEME
+		case "catppuccin-latte":
+			return CATPPUCCIN_LATTE_TERMINAL_THEME
+		case "vs-dark":
+			return VS_DARK_TERMINAL_THEME
+		case "vs-light":
+			return VS_LIGHT_TERMINAL_THEME
+		case "github-dark":
+			return GITHUB_DARK_TERMINAL_THEME
+		case "github-light":
+			return GITHUB_LIGHT_TERMINAL_THEME
+		default:
+			return VS_DARK_TERMINAL_THEME
+	}
+}
 
 /* ───────── Terminal themes ───────── */
 
@@ -54,6 +96,102 @@ export const CATPPUCCIN_LATTE_TERMINAL_THEME: TerminalTheme = {
 	brightMagenta: "#8839ef",
 	brightCyan: "#179299",
 	brightWhite: "#4c4f69",
+}
+
+export const VS_DARK_TERMINAL_THEME: TerminalTheme = {
+	background: "#1e1e1e",
+	foreground: "#cccccc",
+	cursor: "#cccccc",
+	cursorAccent: "#1e1e1e",
+	selection: "#264f78",
+	black: "#000000",
+	red: "#cd3131",
+	green: "#0dbc79",
+	yellow: "#e5e510",
+	blue: "#2472c8",
+	magenta: "#bc3fbc",
+	cyan: "#11a8cd",
+	white: "#e5e5e5",
+	brightBlack: "#666666",
+	brightRed: "#f14c4c",
+	brightGreen: "#23d18b",
+	brightYellow: "#f5f543",
+	brightBlue: "#3b8eea",
+	brightMagenta: "#d670d6",
+	brightCyan: "#29b8db",
+	brightWhite: "#e5e5e5",
+}
+
+export const VS_LIGHT_TERMINAL_THEME: TerminalTheme = {
+	background: "#ffffff",
+	foreground: "#333333",
+	cursor: "#333333",
+	cursorAccent: "#ffffff",
+	selection: "#add6ff",
+	black: "#000000",
+	red: "#cd3131",
+	green: "#00bc00",
+	yellow: "#949800",
+	blue: "#0451a5",
+	magenta: "#bc05bc",
+	cyan: "#0598bc",
+	white: "#555555",
+	brightBlack: "#666666",
+	brightRed: "#cd3131",
+	brightGreen: "#14ce14",
+	brightYellow: "#b5ba00",
+	brightBlue: "#0451a5",
+	brightMagenta: "#bc05bc",
+	brightCyan: "#0598bc",
+	brightWhite: "#a5a5a5",
+}
+
+export const GITHUB_DARK_TERMINAL_THEME: TerminalTheme = {
+	background: "#0d1117",
+	foreground: "#c9d1d9",
+	cursor: "#c9d1d9",
+	cursorAccent: "#0d1117",
+	selection: "#3b5070",
+	black: "#484f58",
+	red: "#ff7b72",
+	green: "#3fb950",
+	yellow: "#d29922",
+	blue: "#58a6ff",
+	magenta: "#bc8cff",
+	cyan: "#39c5cf",
+	white: "#b1bac4",
+	brightBlack: "#6e7681",
+	brightRed: "#ffa198",
+	brightGreen: "#56d364",
+	brightYellow: "#e3b341",
+	brightBlue: "#79c0ff",
+	brightMagenta: "#d2a8ff",
+	brightCyan: "#56d4dd",
+	brightWhite: "#f0f6fc",
+}
+
+export const GITHUB_LIGHT_TERMINAL_THEME: TerminalTheme = {
+	background: "#ffffff",
+	foreground: "#24292f",
+	cursor: "#24292f",
+	cursorAccent: "#ffffff",
+	selection: "#0366d625",
+	black: "#24292f",
+	red: "#cf222e",
+	green: "#116329",
+	yellow: "#4d2d00",
+	blue: "#0969da",
+	magenta: "#8250df",
+	cyan: "#1b7c83",
+	white: "#6e7781",
+	brightBlack: "#57606a",
+	brightRed: "#a40e26",
+	brightGreen: "#1a7f37",
+	brightYellow: "#633c01",
+	brightBlue: "#218bff",
+	brightMagenta: "#a371f7",
+	brightCyan: "#3192aa",
+	brightWhite: "#8c959f",
 }
 
 /* ───────── Monaco theme registration ───────── */
@@ -140,6 +278,44 @@ export const defineMonacoThemes = (monaco: Monaco) => {
 			"scrollbarSlider.background": "#ACB0BE88",
 			"scrollbarSlider.hoverBackground": "#8C8FA1AA",
 			"scrollbarSlider.activeBackground": "#1E66F5AA",
+		},
+	})
+
+	monaco.editor.defineTheme(GITHUB_DARK_THEME, {
+		base: "vs-dark",
+		inherit: true,
+		rules: [
+			{ token: "", foreground: "C9D1D9", background: "0D1117" },
+			{ token: "comment", foreground: "8B949E" },
+			{ token: "keyword", foreground: "FF7B72" },
+			{ token: "string", foreground: "A5D6FF" },
+			{ token: "number", foreground: "79C0FF" },
+			{ token: "type", foreground: "FF7B72" },
+		],
+		colors: {
+			"editor.background": "#0D1117",
+			"editor.foreground": "#C9D1D9",
+			"editorLineNumber.foreground": "#484F58",
+			"editor.selectionBackground": "#3392FF44",
+		},
+	})
+
+	monaco.editor.defineTheme(GITHUB_LIGHT_THEME, {
+		base: "vs",
+		inherit: true,
+		rules: [
+			{ token: "", foreground: "24292F", background: "FFFFFF" },
+			{ token: "comment", foreground: "6E7781" },
+			{ token: "keyword", foreground: "CF222E" },
+			{ token: "string", foreground: "0A3069" },
+			{ token: "number", foreground: "0550AE" },
+			{ token: "type", foreground: "CF222E" },
+		],
+		colors: {
+			"editor.background": "#FFFFFF",
+			"editor.foreground": "#24292F",
+			"editorLineNumber.foreground": "#8C959F",
+			"editor.selectionBackground": "#0366D625",
 		},
 	})
 }

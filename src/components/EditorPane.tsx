@@ -1,7 +1,7 @@
 import Editor, { type Monaco } from "@monaco-editor/react"
 import { X } from "lucide-react"
 import type { WorkspaceFileEntry } from "../fileStore"
-import type { KeybindingMode, ThemeMode, VimInteractionMode, EditorCursorPosition } from "../lib/types"
+import type { KeybindingMode, ThemeMode } from "../lib/types"
 import { getTabLabel, getTabIconForPath } from "../lib/helpers"
 import { defineMonacoThemes } from "../lib/themes"
 import { SettingsPanel } from "./SettingsPanel"
@@ -17,9 +17,6 @@ interface EditorPaneProps {
 	settingsTheme: ThemeMode
 	settingsCompletionsEnabled: boolean
 	settingsRelativeLineNumbers: boolean
-	editorCursor: EditorCursorPosition
-	editorStats: { lines: number; words: number; chars: number }
-	vimMode: VimInteractionMode
 	onTabClick: (path: string) => void
 	onTabClose: (path: string) => void
 	onEditorChange: (value: string | undefined) => void
@@ -41,9 +38,6 @@ export function EditorPane({
 	settingsTheme,
 	settingsCompletionsEnabled,
 	settingsRelativeLineNumbers,
-	editorCursor,
-	editorStats,
-	vimMode,
 	onTabClick,
 	onTabClose,
 	onEditorChange,
@@ -53,7 +47,6 @@ export function EditorPane({
 	onChangeCompletions,
 	onChangeRelativeLineNumbers,
 }: EditorPaneProps) {
-	const keybindingModeLabel = vimMode === "normal" ? "NORMAL" : "INSERT"
 
 	return (
 		<div className="editor-pane">
@@ -88,6 +81,7 @@ export function EditorPane({
 						</div>
 					)
 				})}
+				<div className="editor-tab-spacer" />
 			</div>
 
 			{/* Editor content */}
@@ -98,7 +92,7 @@ export function EditorPane({
 						settingsTheme={settingsTheme}
 						settingsCompletionsEnabled={settingsCompletionsEnabled}
 						settingsRelativeLineNumbers={settingsRelativeLineNumbers}
-						vimMode={vimMode}
+						vimMode="insert" // Settings pane doesn't really need live vim mode, we can hardcode for UI or remove
 						onChangeKeybinding={onChangeKeybinding}
 						onChangeTheme={onChangeTheme}
 						onChangeCompletions={onChangeCompletions}
@@ -124,25 +118,6 @@ export function EditorPane({
 					/>
 				)}
 			</div>
-
-			{/* Status bar */}
-			{!isSettingsTabActive && (
-				<div className="editor-statusbar" aria-live="polite">
-					<div className="editor-status-left">
-						<span>Lines: {editorStats.lines}</span>
-						<span>Words: {editorStats.words}</span>
-						<span>Chars: {editorStats.chars}</span>
-						<span>
-							Ln {editorCursor.lineNumber}, Col {editorCursor.column}
-						</span>
-					</div>
-					{settingsKeybinding === "vim" && (
-						<div className="editor-status-right">
-							<span>[ ---{keybindingModeLabel}--- ]</span>
-						</div>
-					)}
-				</div>
-			)}
 
 			{/* Empty state */}
 			{!selectedFile && !isSettingsTabActive && (

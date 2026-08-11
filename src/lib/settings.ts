@@ -6,13 +6,14 @@ export const COMPLETIONS_STORAGE_KEY = "nimbuscode:settings:completions"
 export const RELATIVE_LINE_NUMBERS_STORAGE_KEY =
 	"nimbuscode:settings:relative-line-numbers"
 
-export const readStoredTheme = (): ThemeMode => {
-	if (typeof window === "undefined") return "light"
+export function readStoredTheme(): ThemeMode {
+	if (typeof window === "undefined") return "vs-dark"
 	try {
 		const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light"
-	} catch {
-		return "light"
+		const validThemes = ["vs-dark", "vs-light", "tokyo-night", "catppuccin-latte", "github-dark", "github-light"]
+		return validThemes.includes(storedTheme as string) ? (storedTheme as ThemeMode) : "vs-dark"
+	} catch (error) {
+		return "vs-dark"
 	}
 }
 

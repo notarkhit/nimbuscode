@@ -7,17 +7,14 @@ import Split from "react-split"
 import { useWorkspace } from "./hooks/useWorkspace"
 import { useVim } from "./hooks/useVim"
 
-import { Navbar } from "./components/Navbar"
+import { TitleBar } from "./components/TitleBar"
+import { ActivityBar } from "./components/ActivityBar"
+import { StatusBar } from "./components/StatusBar"
 import { Explorer } from "./components/Explorer"
 import { EditorPane } from "./components/EditorPane"
 import { ConsolePane } from "./components/ConsolePane"
 
-import {
-	CATPPUCCIN_LATTE_THEME,
-	CATPPUCCIN_LATTE_TERMINAL_THEME,
-	TOKYO_NIGHT_TERMINAL_THEME,
-	TOKYO_NIGHT_THEME,
-} from "./lib/themes"
+import { getMonacoTheme } from "./lib/themes"
 import {
 	COMPLETIONS_STORAGE_KEY,
 	KEYBINDING_STORAGE_KEY,
@@ -50,10 +47,13 @@ import "./App.css"
 /* ───────── App ───────── */
 
 function App() {
-	const runnoRef = useRef<RunElement | null>(null)
+	const runnoRef = useRef<RunElement>(null)
 	const monacoRef = useRef<Monaco | null>(null)
+
+
 	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
+	const runCodeRef = useRef<() => void>(() => {})
 
 	/* ── Settings state ── */
 	const [settingsKeybinding, setSettingsKeybinding] =
@@ -66,10 +66,10 @@ function App() {
 	)
 
 	/* ── Run state ── */
+	const [activeActivityView, setActiveActivityView] = useState<"explorer" | "settings" | null>("explorer")
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
 	const [isRunning, setIsRunning] = useState(false)
-	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
 
 	/* ── Editor cursor state ── */
 	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
@@ -89,9 +89,10 @@ function App() {
 		folderPathSet,
 		folderPaths,
 		pendingCreation,
+		pendingRename,
 		workspaceError,
-		isWorkspaceReady,
 		setPendingCreation,
+		setPendingRename,
 		selectPath,
 		activateTab,
 		openSettingsTab,
@@ -99,6 +100,8 @@ function App() {
 		toggleFolder,
 		beginCreateEntry,
 		commitPendingCreation,
+		beginRename,
+		commitRename,
 		deleteSelected,
 		onEditorChange,
 	} = workspace
@@ -110,18 +113,14 @@ function App() {
 	/* ── Derived ── */
 	const isSettingsTabActive = activeFilePath === SETTINGS_TAB_ID
 	const selectedFile = activeFilePath ? fileByPath.get(activeFilePath) ?? null : null
-	const selectedTabLabel = isSettingsTabActive
-		? "Settings"
-		: (selectedFile?.path ?? "Select a file")
-	const selectedRuntime = selectedFile ? getRuntimeForPath(selectedFile.path) : null
 	const selectedLanguageLabel = selectedFile
 		? getLanguageLabelForPath(selectedFile.path)
 		: "No file"
 	const selectedEditorLanguage = selectedFile
 		? getEditorLanguageForPath(selectedFile.path)
 		: "plaintext"
-	const selectedMonacoTheme =
-		settingsTheme === "light" ? CATPPUCCIN_LATTE_THEME : TOKYO_NIGHT_THEME
+	const selectedMonacoTheme = getMonacoTheme(settingsTheme)
+	const selectedRuntime = selectedFile ? getRuntimeForPath(selectedFile.path) : null
 
 	const editorStats = useMemo(() => {
 		if (!selectedFile) return { lines: 0, words: 0, chars: 0 }
@@ -188,6 +187,10 @@ function App() {
 		applyCompletionEditorOptions(settingsCompletionsEnabled, editor)
 		applyLineNumberMode(settingsRelativeLineNumbers, editor)
 		applyKeybindingMode(settingsKeybinding, editor)
+
+		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+			runCodeRef.current()
+		})
 
 		const initialPosition = editor.getPosition()
 		if (initialPosition) {
@@ -403,8 +406,26 @@ function App() {
 		}
 	}
 
+	// Keep ref up to date for monaco bindings
+	useEffect(() => {
+		runCodeRef.current = runCode
+	}, [runCode])
+
 	const clearTerminal = () => {
 		setRunError(null)
+		setTerminalKey((prev) => prev + 1)
+	}
+
+	const stopTerminal = () => {
+		if (runnoRef.current && typeof (runnoRef.current as any).stop === 'function') {
+			try {
+				(runnoRef.current as any).stop()
+			} catch (e) {
+				// Ignore errors from stop
+			}
+		}
+		setIsRunning(false)
+		setRunError("Process terminated by user.")
 		setTerminalKey((prev) => prev + 1)
 	}
 
@@ -414,55 +435,6 @@ function App() {
 		const frame = requestAnimationFrame(() => { fitRunnoTerminal() })
 		return () => cancelAnimationFrame(frame)
 	}, [selectedRuntime, terminalKey])
-
-	/* ── Effects: terminal theme ── */
-
-	useEffect(() => {
-		const applyRunnoTerminalTheme = () => {
-			const runnoTerminal = runnoRef.current?.shadowRoot?.querySelector(
-				"runno-terminal",
-			) as
-				| (HTMLElement & {
-						terminal?: {
-							setOption?: (key: string, value: unknown) => void
-							options?: { theme?: unknown }
-						}
-						shadowRoot?: ShadowRoot | null
-					})
-				| null
-			if (!runnoTerminal) return
-
-			const theme =
-				settingsTheme === "light"
-					? CATPPUCCIN_LATTE_TERMINAL_THEME
-					: TOKYO_NIGHT_TERMINAL_THEME
-
-			const container = runnoTerminal.shadowRoot?.getElementById("container")
-			if (container) {
-				container.style.background = theme.background
-			}
-
-			const terminal = runnoTerminal.terminal
-			if (!terminal) return
-
-			if (typeof terminal.setOption === "function") {
-				terminal.setOption("theme", theme)
-				return
-			}
-
-			if (terminal.options) {
-				terminal.options.theme = theme
-			}
-		}
-
-		const frame = requestAnimationFrame(applyRunnoTerminalTheme)
-		const timer = setTimeout(applyRunnoTerminalTheme, 80)
-
-		return () => {
-			cancelAnimationFrame(frame)
-			clearTimeout(timer)
-		}
-	}, [settingsTheme, selectedRuntime, terminalKey])
 
 	/* ── Effects: localStorage sync ── */
 
@@ -558,88 +530,111 @@ function App() {
 
 	return (
 		<div
-			className={`app-root ${settingsTheme === "light" ? "theme-light" : "theme-dark"}`}
+			className={`ide-root theme-${settingsTheme}`}
 		>
-			<Navbar
-				selectedTabLabel={selectedTabLabel}
-				selectedLanguageLabel={selectedLanguageLabel}
-				selectedRuntime={selectedRuntime}
-				selectedFile={selectedFile}
-				isWorkspaceReady={isWorkspaceReady}
-				isRunning={isRunning}
-				showSupportedLanguages={showSupportedLanguages}
-				onToggleSupportedLanguages={() => setShowSupportedLanguages((prev) => !prev)}
-				onHideSupportedLanguages={() => setShowSupportedLanguages(false)}
+			<TitleBar
 				onRun={runCode}
-				onOpenSettings={openSettingsTab}
+				isRunning={isRunning}
+				isDisabled={isRunning || !selectedFile || !selectedRuntime}
 			/>
 
-			<Split
-				direction="horizontal"
-				sizes={[20, 80]}
-				minSize={[180, 340]}
-				gutterSize={6}
-				className="workspace-area"
-			>
-				<Explorer
-					fileEntries={fileEntries}
-					folderPaths={folderPaths}
-					folderPathSet={folderPathSet}
-					fileByPath={fileByPath}
-					selectedPath={selectedPath}
-					expandedFolders={expandedFolders}
-					pendingCreation={pendingCreation}
-					workspaceError={workspaceError}
-					onSelectPath={selectPath}
-					onToggleFolder={toggleFolder}
-					onBeginCreateFile={() => beginCreateEntry("file")}
-					onBeginCreateFolder={() => beginCreateEntry("folder")}
-					onDeleteSelected={() => void deleteSelected()}
-					onSetPendingCreation={setPendingCreation}
-					onCommitPendingCreation={(value) => void commitPendingCreation(value)}
+			<div className="ide-main">
+				<ActivityBar
+					activeView={activeActivityView}
+					onViewChange={setActiveActivityView}
+					onSettingsClick={() => {
+						setActiveActivityView("settings")
+						openSettingsTab()
+					}}
 				/>
 
-				<div className="main-pane">
-					<Split
-						direction="vertical"
-						sizes={[72, 28]}
-						minSize={[220, 120]}
-						gutterSize={6}
-						className="editor-area"
-					>
-						<EditorPane
-							openTabs={openTabs}
-							activeFilePath={activeFilePath}
-							selectedFile={selectedFile}
-							isSettingsTabActive={isSettingsTabActive}
-							selectedMonacoTheme={selectedMonacoTheme}
-							selectedEditorLanguage={selectedEditorLanguage}
-							settingsKeybinding={settingsKeybinding}
-							settingsTheme={settingsTheme}
-							settingsCompletionsEnabled={settingsCompletionsEnabled}
-							settingsRelativeLineNumbers={settingsRelativeLineNumbers}
-							editorCursor={editorCursor}
-							editorStats={editorStats}
-							vimMode={vimMode}
-							onTabClick={activateTab}
-							onTabClose={closeTab}
-							onEditorChange={onEditorChange}
-							onEditorMount={handleEditorMount}
-							onChangeKeybinding={setSettingsKeybinding}
-							onChangeTheme={setSettingsTheme}
-							onChangeCompletions={setSettingsCompletionsEnabled}
-							onChangeRelativeLineNumbers={setSettingsRelativeLineNumbers}
-						/>
+				<div className="workspace-area" style={{ display: "flex", flex: 1, width: "100%", overflow: "hidden" }}>
+					{activeActivityView === "explorer" && (
+						<div
+							style={{
+								width: "250px",
+								flexShrink: 0,
+								borderRight: "1px solid var(--tn-border)",
+								display: "flex",
+								flexDirection: "column",
+								overflow: "hidden",
+							}}
+						>
+							<Explorer
+								fileEntries={fileEntries}
+								folderPaths={folderPaths}
+								folderPathSet={folderPathSet}
+								fileByPath={fileByPath}
+								selectedPath={selectedPath}
+								expandedFolders={expandedFolders}
+								pendingCreation={pendingCreation}
+								pendingRename={pendingRename}
+								workspaceError={workspaceError}
+								onSelectPath={selectPath}
+								onToggleFolder={toggleFolder}
+								onBeginCreateFile={() => beginCreateEntry("file")}
+								onBeginCreateFolder={() => beginCreateEntry("folder")}
+								onBeginRename={beginRename}
+								onDeleteSelected={() => void deleteSelected()}
+								onSetPendingCreation={setPendingCreation}
+								onCommitPendingCreation={(value) => void commitPendingCreation(value)}
+								onSetPendingRename={setPendingRename}
+								onCommitRename={(value) => void commitRename(value)}
+							/>
+						</div>
+					)}
 
-						<ConsolePane
-							selectedRuntime={selectedRuntime}
-							terminalKey={terminalKey}
-							runnoRef={runnoRef}
-							onClear={clearTerminal}
-						/>
-					</Split>
+					<div className="main-pane" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+						<Split
+							direction="vertical"
+							sizes={[72, 28]}
+							minSize={[220, 120]}
+							gutterSize={6}
+							className="editor-area"
+						>
+							<EditorPane
+								openTabs={openTabs}
+								activeFilePath={activeFilePath}
+								selectedFile={selectedFile}
+								isSettingsTabActive={isSettingsTabActive}
+								selectedMonacoTheme={selectedMonacoTheme}
+								selectedEditorLanguage={selectedEditorLanguage}
+								settingsKeybinding={settingsKeybinding}
+								settingsTheme={settingsTheme}
+								settingsCompletionsEnabled={settingsCompletionsEnabled}
+								settingsRelativeLineNumbers={settingsRelativeLineNumbers}
+								onTabClick={activateTab}
+								onTabClose={closeTab}
+								onEditorChange={onEditorChange}
+								onEditorMount={handleEditorMount}
+								onChangeKeybinding={setSettingsKeybinding}
+								onChangeTheme={setSettingsTheme}
+								onChangeCompletions={setSettingsCompletionsEnabled}
+								onChangeRelativeLineNumbers={setSettingsRelativeLineNumbers}
+							/>
+
+							<ConsolePane
+								selectedRuntime={selectedRuntime}
+								terminalKey={terminalKey}
+								runnoRef={runnoRef}
+								isRunning={isRunning}
+								theme={settingsTheme}
+								onStop={stopTerminal}
+								onClear={clearTerminal}
+							/>
+						</Split>
+					</div>
 				</div>
-			</Split>
+
+			</div>
+
+			<StatusBar
+				vimMode={vimMode}
+				editorCursor={editorCursor}
+				editorStats={editorStats}
+				selectedLanguageLabel={selectedLanguageLabel}
+				selectedRuntime={selectedRuntime}
+			/>
 		</div>
 	)
 }
