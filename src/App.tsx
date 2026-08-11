@@ -1,941 +1,61 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import Editor, { type Monaco } from "@monaco-editor/react"
-import { fetchWASIFS, type RunElement, type Runtime } from "@runno/runtime"
-import { WASI, type WASIFile, type WASIFS } from "@runno/wasi"
-import {
-	Cloud,
-	ChevronDown,
-	Database,
-	Eraser,
-	File,
-	FileCode2,
-	FileJson2,
-	FilePlus2,
-	Folder,
-	FolderOpen,
-	FolderPlus,
-	FolderTree,
-	Gem,
-	Languages,
-	LoaderCircle,
-	Play,
-	Settings,
-	TerminalSquare,
-	Trash2,
-	X,
-	type LucideIcon,
-} from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import type { Monaco } from "@monaco-editor/react"
+import { fetchWASIFS, type RunElement } from "@runno/runtime"
+import { WASI, type WASIFS } from "@runno/wasi"
 import Split from "react-split"
+
+import { useWorkspace } from "./hooks/useWorkspace"
+import { useVim } from "./hooks/useVim"
+
+import { Navbar } from "./components/Navbar"
+import { Explorer } from "./components/Explorer"
+import { EditorPane } from "./components/EditorPane"
+import { ConsolePane } from "./components/ConsolePane"
+
 import {
-	deleteWorkspacePaths,
-	listWorkspaceEntries,
-	putWorkspaceEntries,
-	type WorkspaceEntry,
-	type WorkspaceFileEntry,
-	type WorkspaceFolderEntry,
-} from "./fileStore"
+	CATPPUCCIN_LATTE_THEME,
+	CATPPUCCIN_LATTE_TERMINAL_THEME,
+	TOKYO_NIGHT_TERMINAL_THEME,
+	TOKYO_NIGHT_THEME,
+} from "./lib/themes"
+import {
+	COMPLETIONS_STORAGE_KEY,
+	KEYBINDING_STORAGE_KEY,
+	RELATIVE_LINE_NUMBERS_STORAGE_KEY,
+	THEME_STORAGE_KEY,
+	readStoredCompletionsEnabled,
+	readStoredKeybinding,
+	readStoredRelativeLineNumbers,
+	readStoredTheme,
+} from "./lib/settings"
+import {
+	getCrossOriginIsolationError,
+	buildCompiledCommands,
+} from "./lib/runtime"
+import {
+	createStringFile,
+	getBinaryURLFromFS,
+	escapeSqlLiteral,
+	getLanguageLabelForPath,
+	getEditorLanguageForPath,
+	getRuntimeForPath,
+} from "./lib/helpers"
+import { SETTINGS_TAB_ID } from "./lib/constants"
+import {
+	registerSimpleLanguageCompletions,
+} from "./lib/completions"
+import type { KeybindingMode, ThemeMode, CompiledRuntime, EditorCursorPosition } from "./lib/types"
 import "./App.css"
-
-/* ───────── Constants ───────── */
-
-const runtimeByExtension: Record<string, Runtime> = {
-	".js": "quickjs",
-	".mjs": "quickjs",
-	".cjs": "quickjs",
-	".py": "python",
-	".c": "clang",
-	".cpp": "clangpp",
-	".cc": "clangpp",
-	".cxx": "clangpp",
-	".php": "php-cgi",
-	".phtml": "php-cgi",
-	".sql": "sqlite",
-	".rb": "ruby",
-}
-
-const languageByExtension: Record<string, string> = {
-	".js": "JavaScript",
-	".mjs": "JavaScript",
-	".cjs": "JavaScript",
-	".py": "Python",
-	".c": "C",
-	".cpp": "C++",
-	".cc": "C++",
-	".cxx": "C++",
-	".php": "PHP",
-	".phtml": "PHP",
-	".sql": "SQLite",
-	".rb": "Ruby",
-}
-
-const languageIconByLabel: Record<string, LucideIcon> = {
-	JavaScript: FileCode2,
-	Python: FileCode2,
-	C: FileCode2,
-	"C++": FileCode2,
-	PHP: FileCode2,
-	SQLite: Database,
-	Ruby: Gem,
-}
-
-const fileIconByExtension: Record<string, LucideIcon> = {
-	".js": FileJson2,
-	".mjs": FileJson2,
-	".cjs": FileJson2,
-	".py": FileCode2,
-	".c": FileCode2,
-	".cpp": FileCode2,
-	".cc": FileCode2,
-	".cxx": FileCode2,
-	".php": FileCode2,
-	".phtml": FileCode2,
-	".sql": Database,
-	".rb": Gem,
-}
-
-const supportedLanguages: Array<{ label: string; extensions: string[] }> = [
-	{ label: "JavaScript", extensions: [".js", ".mjs", ".cjs"] },
-	{ label: "Python", extensions: [".py"] },
-	{ label: "C", extensions: [".c"] },
-	{ label: "C++", extensions: [".cpp", ".cc", ".cxx"] },
-	{ label: "PHP", extensions: [".php", ".phtml"] },
-	{ label: "SQLite", extensions: [".sql"] },
-	{ label: "Ruby", extensions: [".rb"] },
-]
-
-const editorLanguageByExtension: Record<string, string> = {
-	".js": "javascript",
-	".mjs": "javascript",
-	".cjs": "javascript",
-	".py": "python",
-	".c": "cpp",
-	".cpp": "cpp",
-	".cc": "cpp",
-	".cxx": "cpp",
-	".php": "php",
-	".phtml": "php",
-	".sql": "sql",
-	".rb": "ruby",
-}
-
-const templateByExtension: Record<string, string> = {
-	".js": `const name = "friend"
-console.log("Hello, " + name + "!")
-`,
-	".mjs": `const name = "friend"
-console.log("Hello, " + name + "!")
-`,
-	".cjs": `const name = "friend"
-console.log("Hello, " + name + "!")
-`,
-	".py": `name = input("What's your name? ").strip()
-print(f"Hello, {name or 'friend'}!")
-`,
-	".c": `#include <stdio.h>
-
-int main(void) {
-  printf("Hello, World!\\n");
-  return 0;
-}
-`,
-	".cpp": `#include <iostream>
-#include <string>
-
-int main() {
-  std::string name;
-  std::cout << "What's your name? ";
-  std::getline(std::cin, name);
-
-  if (name.empty()) {
-    name = "friend";
-  }
-
-  std::cout << "Hello, " << name << "!\\n";
-  return 0;
-}
-`,
-	".cc": `#include <iostream>
-#include <string>
-
-int main() {
-  std::string name;
-  std::cout << "What's your name? ";
-  std::getline(std::cin, name);
-
-  if (name.empty()) {
-    name = "friend";
-  }
-
-  std::cout << "Hello, " << name << "!\\n";
-  return 0;
-}
-`,
-	".cxx": `#include <iostream>
-#include <string>
-
-int main() {
-  std::string name;
-  std::cout << "What's your name? ";
-  std::getline(std::cin, name);
-
-  if (name.empty()) {
-    name = "friend";
-  }
-
-  std::cout << "Hello, " << name << "!\\n";
-  return 0;
-}
-`,
-	".php": `<?php
-echo "What's your name? ";
-$stream = fopen("php://stdin", "r");
-$name = $stream ? trim((string) fgets($stream)) : "";
-if (is_resource($stream)) {
-    fclose($stream);
-}
-
-if ($name === "") {
-    $name = "friend";
-}
-
-echo "Hello, {$name}!\\n";
-`,
-	".phtml": `<?php
-echo "What's your name? ";
-$stream = fopen("php://stdin", "r");
-$name = $stream ? trim((string) fgets($stream)) : "";
-if (is_resource($stream)) {
-    fclose($stream);
-}
-
-if ($name === "") {
-    $name = "friend";
-}
-
-echo "Hello, {$name}!\\n";
-`,
-	".sql": `-- On Run, NimbusCode prompts for a name and replaces {{name}}.
-WITH person(name) AS (VALUES ('{{name}}'))
-SELECT 'Hello, ' || name || '!' AS greeting
-FROM person;
-`,
-	".rb": `print "What's your name? "
-name = STDIN.gets&.strip.to_s
-name = "friend" if name.empty?
-puts "Hello, #{name}!"
-`,
-}
-
-const initialWorkspace: WorkspaceEntry[] = [
-	{
-		path: "/main.py",
-		kind: "file",
-		content: `name = input("What's your name? ").strip()
-print(f"Hello, {name or 'friend'}!")
-`,
-		updatedAt: Date.now(),
-	},
-]
-
-const TOKYO_NIGHT_THEME = "tokyonight-nimbus"
-const CATPPUCCIN_LATTE_THEME = "catppuccin-latte-nimbus"
-const SETTINGS_TAB_ID = "__nimbus_settings__"
-
-type KeybindingMode = "default" | "vim"
-type ThemeMode = "dark" | "light"
-const THEME_STORAGE_KEY = "nimbuscode:settings:theme"
-const KEYBINDING_STORAGE_KEY = "nimbuscode:settings:keybinding"
-const COMPLETIONS_STORAGE_KEY = "nimbuscode:settings:completions"
-const RELATIVE_LINE_NUMBERS_STORAGE_KEY =
-	"nimbuscode:settings:relative-line-numbers"
-
-const readStoredTheme = (): ThemeMode => {
-	if (typeof window === "undefined") return "light"
-
-	try {
-		const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-		return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light"
-	} catch {
-		return "light"
-	}
-}
-
-const readStoredKeybinding = (): KeybindingMode => {
-	if (typeof window === "undefined") return "default"
-
-	try {
-		const storedValue = window.localStorage.getItem(KEYBINDING_STORAGE_KEY)
-		return storedValue === "vim" || storedValue === "default" ? storedValue : "default"
-	} catch {
-		return "default"
-	}
-}
-
-const readStoredCompletionsEnabled = (): boolean => {
-	if (typeof window === "undefined") return true
-
-	try {
-		const storedValue = window.localStorage.getItem(COMPLETIONS_STORAGE_KEY)
-		return storedValue === null ? true : storedValue === "true"
-	} catch {
-		return true
-	}
-}
-
-const readStoredRelativeLineNumbers = (): boolean => {
-	if (typeof window === "undefined") return false
-
-	try {
-		return window.localStorage.getItem(RELATIVE_LINE_NUMBERS_STORAGE_KEY) === "true"
-	} catch {
-		return false
-	}
-}
-
-type TerminalTheme = Record<string, string>
-type VimInteractionMode = "insert" | "normal"
-type EditorCursorPosition = { lineNumber: number; column: number }
-
-const TOKYO_NIGHT_TERMINAL_THEME: TerminalTheme = {
-	background: "#1a1b26",
-	foreground: "#c0caf5",
-	cursor: "#7aa2f7",
-	cursorAccent: "#1a1b26",
-	selection: "#33467c66",
-	black: "#15161e",
-	red: "#f7768e",
-	green: "#9ece6a",
-	yellow: "#e0af68",
-	blue: "#7aa2f7",
-	magenta: "#bb9af7",
-	cyan: "#7dcfff",
-	white: "#a9b1d6",
-	brightBlack: "#414868",
-	brightRed: "#f7768e",
-	brightGreen: "#9ece6a",
-	brightYellow: "#e0af68",
-	brightBlue: "#7aa2f7",
-	brightMagenta: "#bb9af7",
-	brightCyan: "#7dcfff",
-	brightWhite: "#c0caf5",
-}
-
-const CATPPUCCIN_LATTE_TERMINAL_THEME: TerminalTheme = {
-	background: "#eff1f5",
-	foreground: "#4c4f69",
-	cursor: "#1e66f5",
-	cursorAccent: "#eff1f5",
-	selection: "#bcc0cc66",
-	black: "#5c5f77",
-	red: "#d20f39",
-	green: "#40a02b",
-	yellow: "#df8e1d",
-	blue: "#1e66f5",
-	magenta: "#8839ef",
-	cyan: "#179299",
-	white: "#acb0be",
-	brightBlack: "#6c6f85",
-	brightRed: "#d20f39",
-	brightGreen: "#40a02b",
-	brightYellow: "#df8e1d",
-	brightBlue: "#1e66f5",
-	brightMagenta: "#8839ef",
-	brightCyan: "#179299",
-	brightWhite: "#4c4f69",
-}
-
-type SimpleCompletionKind =
-	| "keyword"
-	| "function"
-	| "snippet"
-	| "class"
-	| "variable"
-	| "module"
-
-type SimpleCompletionItem = {
-	label: string
-	kind: SimpleCompletionKind
-	insertText?: string
-	detail?: string
-	isSnippet?: boolean
-}
-
-type LanguageCompletionConfig = {
-	language: string
-	triggerCharacters?: string[]
-	items: SimpleCompletionItem[]
-}
-
-const SIMPLE_LANGUAGE_COMPLETIONS: LanguageCompletionConfig[] = [
-	{
-		language: "javascript",
-		triggerCharacters: [".", "_"],
-		items: [
-			{ label: "const", kind: "keyword" },
-			{ label: "let", kind: "keyword" },
-			{ label: "function", kind: "keyword" },
-			{ label: "return", kind: "keyword" },
-			{ label: "if", kind: "keyword" },
-			{ label: "else", kind: "keyword" },
-			{ label: "for", kind: "keyword" },
-			{ label: "while", kind: "keyword" },
-			{ label: "class", kind: "class" },
-			{ label: "import", kind: "keyword" },
-			{ label: "export", kind: "keyword" },
-			{ label: "async", kind: "keyword" },
-			{ label: "await", kind: "keyword" },
-			{ label: "console.log", kind: "function", insertText: "console.log(${1:value})", isSnippet: true },
-		],
-	},
-	{
-		language: "python",
-		triggerCharacters: [".", "_"],
-		items: [
-			{ label: "def", kind: "keyword", insertText: "def ${1:name}(${2:args}):\n\t${3:pass}", isSnippet: true },
-			{ label: "class", kind: "class", insertText: "class ${1:Name}:\n\tdef __init__(self, ${2:args}):\n\t\t${3:pass}", isSnippet: true },
-			{ label: "if", kind: "keyword" },
-			{ label: "elif", kind: "keyword" },
-			{ label: "else", kind: "keyword" },
-			{ label: "for", kind: "keyword", insertText: "for ${1:item} in ${2:iterable}:\n\t${3:pass}", isSnippet: true },
-			{ label: "while", kind: "keyword" },
-			{ label: "import", kind: "keyword" },
-			{ label: "from", kind: "keyword" },
-			{ label: "return", kind: "keyword" },
-			{ label: "print", kind: "function" },
-			{ label: "len", kind: "function" },
-		],
-	},
-	{
-		language: "cpp",
-		triggerCharacters: [".", ":", "_"],
-		items: [
-			{ label: "#include <stdio.h>", kind: "snippet", insertText: "#include <stdio.h>", isSnippet: true },
-			{ label: "#include <iostream>", kind: "snippet", insertText: "#include <iostream>", isSnippet: true },
-			{
-				label: "main",
-				kind: "snippet",
-				insertText: "int main() {\n\t${1:// code}\n\treturn 0;\n}",
-				isSnippet: true,
-			},
-			{ label: "if", kind: "keyword" },
-			{ label: "else", kind: "keyword" },
-			{ label: "for", kind: "keyword", insertText: "for (int ${1:i} = 0; ${1:i} < ${2:n}; ++${1:i}) {\n\t${3}\n}", isSnippet: true },
-			{ label: "while", kind: "keyword" },
-			{ label: "return", kind: "keyword" },
-			{ label: "int", kind: "keyword" },
-			{ label: "char", kind: "keyword" },
-			{ label: "double", kind: "keyword" },
-			{ label: "void", kind: "keyword" },
-			{ label: "std::cout", kind: "variable" },
-			{ label: "std::cin", kind: "variable" },
-			{ label: "printf", kind: "function" },
-		],
-	},
-	{
-		language: "php",
-		triggerCharacters: ["$", ":", ">"],
-		items: [
-			{ label: "<?php", kind: "snippet", insertText: "<?php\n${1:// code}\n", isSnippet: true },
-			{ label: "echo", kind: "keyword" },
-			{ label: "function", kind: "keyword", insertText: "function ${1:name}(${2:$args}) {\n\t${3}\n}", isSnippet: true },
-			{ label: "if", kind: "keyword" },
-			{ label: "else", kind: "keyword" },
-			{ label: "foreach", kind: "keyword", insertText: "foreach (${1:$items} as ${2:$item}) {\n\t${3}\n}", isSnippet: true },
-			{ label: "return", kind: "keyword" },
-			{ label: "class", kind: "class" },
-			{ label: "public", kind: "keyword" },
-			{ label: "private", kind: "keyword" },
-		],
-	},
-	{
-		language: "ruby",
-		triggerCharacters: [".", ":"],
-		items: [
-			{ label: "def", kind: "keyword", insertText: "def ${1:name}(${2:args})\n\t${3}\nend", isSnippet: true },
-			{ label: "class", kind: "class", insertText: "class ${1:Name}\n\t${2}\nend", isSnippet: true },
-			{ label: "module", kind: "module" },
-			{ label: "if", kind: "keyword" },
-			{ label: "elsif", kind: "keyword" },
-			{ label: "else", kind: "keyword" },
-			{ label: "end", kind: "keyword" },
-			{ label: "require", kind: "keyword" },
-			{ label: "puts", kind: "function" },
-			{ label: "each do", kind: "snippet", insertText: "${1:items}.each do |${2:item}|\n\t${3}\nend", isSnippet: true },
-		],
-	},
-	{
-		language: "sql",
-		triggerCharacters: [" "],
-		items: [
-			{ label: "SELECT", kind: "keyword" },
-			{ label: "FROM", kind: "keyword" },
-			{ label: "WHERE", kind: "keyword" },
-			{ label: "INSERT INTO", kind: "keyword" },
-			{ label: "UPDATE", kind: "keyword" },
-			{ label: "DELETE", kind: "keyword" },
-			{ label: "CREATE TABLE", kind: "snippet", insertText: "CREATE TABLE ${1:table_name} (\n\t${2:id} INTEGER PRIMARY KEY,\n\t${3:name} TEXT NOT NULL\n);", isSnippet: true },
-			{ label: "JOIN", kind: "keyword" },
-			{ label: "GROUP BY", kind: "keyword" },
-			{ label: "ORDER BY", kind: "keyword" },
-			{ label: "LIMIT", kind: "keyword" },
-		],
-	},
-]
-
-const toMonacoCompletionKind = (monaco: Monaco, kind: SimpleCompletionKind): number => {
-	switch (kind) {
-		case "function":
-			return monaco.languages.CompletionItemKind.Function
-		case "snippet":
-			return monaco.languages.CompletionItemKind.Snippet
-		case "class":
-			return monaco.languages.CompletionItemKind.Class
-		case "variable":
-			return monaco.languages.CompletionItemKind.Variable
-		case "module":
-			return monaco.languages.CompletionItemKind.Module
-		case "keyword":
-		default:
-			return monaco.languages.CompletionItemKind.Keyword
-	}
-}
-
-const registerSimpleLanguageCompletions = (
-	monaco: Monaco,
-): Array<{ dispose: () => void }> =>
-	SIMPLE_LANGUAGE_COMPLETIONS.map((config) =>
-		monaco.languages.registerCompletionItemProvider(config.language, {
-			triggerCharacters: config.triggerCharacters,
-			provideCompletionItems(
-				model: Monaco["editor"]["ITextModel"],
-				position: Monaco["Position"],
-			) {
-				const word = model.getWordUntilPosition(position)
-				const range = {
-					startLineNumber: position.lineNumber,
-					endLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
-					endColumn: word.endColumn,
-				}
-
-				const suggestions = config.items.map((item) => ({
-					label: item.label,
-					kind: toMonacoCompletionKind(monaco, item.kind),
-					insertText: item.insertText ?? item.label,
-					insertTextRules: item.isSnippet
-						? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-						: undefined,
-					detail: item.detail,
-					range,
-				}))
-
-				return { suggestions }
-			},
-		}),
-	)
-
-const defineMonacoThemes = (monaco: Monaco) => {
-	monaco.editor.defineTheme(TOKYO_NIGHT_THEME, {
-		base: "vs-dark",
-		inherit: true,
-		rules: [
-			{ token: "", foreground: "C0CAF5", background: "1A1B26" },
-			{ token: "comment", foreground: "565F89" },
-			{ token: "keyword", foreground: "BB9AF7" },
-			{ token: "operator", foreground: "89DDFF" },
-			{ token: "string", foreground: "9ECE6A" },
-			{ token: "number", foreground: "FF9E64" },
-			{ token: "constant", foreground: "FF9E64" },
-			{ token: "type", foreground: "2AC3DE" },
-			{ token: "function", foreground: "7AA2F7" },
-			{ token: "variable", foreground: "C0CAF5" },
-		],
-		colors: {
-			"editor.background": "#1A1B26",
-			"editor.foreground": "#C0CAF5",
-			"editorLineNumber.foreground": "#565F89",
-			"editorLineNumber.activeForeground": "#7AA2F7",
-			"editorCursor.foreground": "#C0CAF5",
-			"editor.selectionBackground": "#2E3C64",
-			"editor.inactiveSelectionBackground": "#283457",
-			"editor.selectionHighlightBackground": "#2E3C64AA",
-			"editor.wordHighlightBackground": "#2E3C6477",
-			"editor.wordHighlightStrongBackground": "#7AA2F733",
-			"editor.findMatchBackground": "#33467CAA",
-			"editor.findMatchHighlightBackground": "#33467C66",
-			"editorIndentGuide.background1": "#292E42",
-			"editorIndentGuide.activeBackground1": "#3B4261",
-			"editorBracketMatch.background": "#33467C66",
-			"editorBracketMatch.border": "#7AA2F7",
-			"editorGutter.background": "#1A1B26",
-			"editorWhitespace.foreground": "#3B426180",
-			"editorWidget.background": "#1F2335",
-			"editorWidget.border": "#3B4261",
-			"scrollbarSlider.background": "#3B426188",
-			"scrollbarSlider.hoverBackground": "#565F89AA",
-			"scrollbarSlider.activeBackground": "#7AA2F7AA",
-		},
-	})
-
-	monaco.editor.defineTheme(CATPPUCCIN_LATTE_THEME, {
-		base: "vs",
-		inherit: true,
-		rules: [
-			{ token: "", foreground: "4C4F69", background: "EFF1F5" },
-			{ token: "comment", foreground: "8C8FA1" },
-			{ token: "keyword", foreground: "8839EF" },
-			{ token: "operator", foreground: "179299" },
-			{ token: "string", foreground: "40A02B" },
-			{ token: "number", foreground: "FE640B" },
-			{ token: "constant", foreground: "FE640B" },
-			{ token: "type", foreground: "DF8E1D" },
-			{ token: "function", foreground: "1E66F5" },
-			{ token: "variable", foreground: "4C4F69" },
-		],
-		colors: {
-			"editor.background": "#EFF1F5",
-			"editor.foreground": "#4C4F69",
-			"editorLineNumber.foreground": "#8C8FA1",
-			"editorLineNumber.activeForeground": "#1E66F5",
-			"editorCursor.foreground": "#4C4F69",
-			"editor.selectionBackground": "#CCD0DA",
-			"editor.inactiveSelectionBackground": "#DCE0E8",
-			"editor.selectionHighlightBackground": "#BCC0CCAA",
-			"editor.wordHighlightBackground": "#BCC0CC77",
-			"editor.wordHighlightStrongBackground": "#1E66F533",
-			"editor.findMatchBackground": "#1E66F544",
-			"editor.findMatchHighlightBackground": "#1E66F522",
-			"editorIndentGuide.background1": "#CCD0DA",
-			"editorIndentGuide.activeBackground1": "#ACB0BE",
-			"editorBracketMatch.background": "#1E66F522",
-			"editorBracketMatch.border": "#1E66F5",
-			"editorGutter.background": "#EFF1F5",
-			"editorWhitespace.foreground": "#ACB0BE",
-			"editorWidget.background": "#E6E9EF",
-			"editorWidget.border": "#ACB0BE",
-			"scrollbarSlider.background": "#ACB0BE88",
-			"scrollbarSlider.hoverBackground": "#8C8FA1AA",
-			"scrollbarSlider.activeBackground": "#1E66F5AA",
-		},
-	})
-}
-
-type PendingCreation = {
-	kind: "file" | "folder"
-	parentPath: string
-	value: string
-}
-
-type CompiledRuntime = "clang" | "clangpp"
-
-type BinaryCommand = {
-	binaryURL: string
-	binaryName: string
-	args?: string[]
-	env?: Record<string, string>
-	baseFSURL?: string
-}
-
-const RUNNO_LANG_BASE_URL = "https://runno.dev/langs"
-
-const getCrossOriginIsolationError = (): string | null => {
-	if (typeof window === "undefined") return null
-
-	if (window.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") {
-		return null
-	}
-
-	return [
-		"SharedArrayBuffer is unavailable in this deployment.",
-		"Set HTTP response headers:",
-		"Cross-Origin-Opener-Policy: same-origin",
-		"Cross-Origin-Embedder-Policy: require-corp",
-		"Then verify window.crossOriginIsolated === true.",
-	].join(" ")
-}
-
-const buildCompiledCommands = (
-	runtime: CompiledRuntime,
-	entryPath: string,
-): {
-	prepare: BinaryCommand[]
-	run: { fsPath: string; binaryName: string; args?: string[]; env?: Record<string, string> }
-} => {
-	if (runtime === "clangpp") {
-		return {
-			prepare: [
-				{
-					binaryURL: `${RUNNO_LANG_BASE_URL}/clang.wasm`,
-					binaryName: "clang",
-					args: [
-						"-cc1",
-						"-emit-obj",
-						"-disable-free",
-						"-isysroot",
-						"/sys",
-						"-internal-isystem",
-						"/sys/include/c++/v1",
-						"-internal-isystem",
-						"/sys/include",
-						"-internal-isystem",
-						"/sys/lib/clang/8.0.1/include",
-						"-ferror-limit",
-						"8",
-						"-fmessage-length",
-						"80",
-						"-fcolor-diagnostics",
-						"-O2",
-						"-o",
-						"/program.o",
-						"-x",
-						"c++",
-						entryPath,
-					],
-					env: {},
-					baseFSURL: `${RUNNO_LANG_BASE_URL}/clang-fs.tar.gz`,
-				},
-				{
-					binaryURL: `${RUNNO_LANG_BASE_URL}/wasm-ld.wasm`,
-					binaryName: "wasm-ld",
-					args: [
-						"--no-threads",
-						"--export-dynamic",
-						"-z",
-						"stack-size=1048576",
-						"-L/sys/lib/wasm32-wasi",
-						"/sys/lib/wasm32-wasi/crt1.o",
-						"/program.o",
-						"-lc",
-						"-lc++",
-						"-lc++abi",
-						"-o",
-						"/program.wasm",
-					],
-					env: {},
-				},
-			],
-			run: {
-				fsPath: "/program.wasm",
-				binaryName: "program",
-				args: [],
-				env: {},
-			},
-		}
-	}
-
-	return {
-		prepare: [
-			{
-				binaryURL: `${RUNNO_LANG_BASE_URL}/clang.wasm`,
-				binaryName: "clang",
-				args: [
-					"-cc1",
-					"-triple",
-					"wasm32-unknown-wasi",
-					"-isysroot",
-					"/sys",
-					"-internal-isystem",
-					"/sys/include",
-					"-internal-isystem",
-					"/sys/lib/clang/8.0.1/include",
-					"-ferror-limit",
-					"8",
-					"-fmessage-length",
-					"80",
-					"-fcolor-diagnostics",
-					"-O2",
-					"-emit-obj",
-					"-o",
-					"/program.o",
-					entryPath,
-				],
-				env: {},
-				baseFSURL: `${RUNNO_LANG_BASE_URL}/clang-fs.tar.gz`,
-			},
-			{
-				binaryURL: `${RUNNO_LANG_BASE_URL}/wasm-ld.wasm`,
-				binaryName: "wasm-ld",
-				args: [
-					"--no-threads",
-					"--export-dynamic",
-					"-z",
-					"stack-size=1048576",
-					"-L/sys/lib/wasm32-wasi",
-					"/sys/lib/wasm32-wasi/crt1.o",
-					"/program.o",
-					"-lc",
-					"-o",
-					"/program.wasm",
-				],
-				env: {},
-			},
-		],
-		run: {
-			fsPath: "/program.wasm",
-			binaryName: "program",
-			args: [],
-			env: {},
-		},
-	}
-}
-
-/* ───────── Helpers ───────── */
-
-const normalizePathInput = (rawPath: string): string =>
-	rawPath
-		.trim()
-		.replace(/\\/g, "/")
-		.replace(/^\/+/, "")
-		.replace(/\/+/g, "/")
-		.replace(/\/$/, "")
-
-const getParentPath = (path: string): string | null => {
-	if (path === "/") return null
-
-	const slashIndex = path.lastIndexOf("/")
-	if (slashIndex <= 0) return "/"
-	return path.slice(0, slashIndex)
-}
-
-const getBaseName = (path: string): string => {
-	if (path === "/") return "/"
-	const slashIndex = path.lastIndexOf("/")
-	return slashIndex < 0 ? path : path.slice(slashIndex + 1)
-}
-
-const joinPath = (basePath: string, relativePath: string): string =>
-	basePath === "/" ? `/${relativePath}` : `${basePath}/${relativePath}`
-
-const getExtension = (path: string): string => {
-	const baseName = getBaseName(path)
-	const dotIndex = baseName.lastIndexOf(".")
-	if (dotIndex < 0) return ""
-	return baseName.slice(dotIndex).toLowerCase()
-}
-
-const getFileIconForPath = (path: string): LucideIcon =>
-	fileIconByExtension[getExtension(path)] ?? File
-
-const getRuntimeForPath = (path: string): Runtime | null =>
-	runtimeByExtension[getExtension(path)] ?? null
-
-const getLanguageLabelForPath = (path: string): string =>
-	languageByExtension[getExtension(path)] ?? "Unsupported"
-
-const getEditorLanguageForPath = (path: string): string =>
-	editorLanguageByExtension[getExtension(path)] ?? "plaintext"
-
-const getTemplateForPath = (path: string): string =>
-	templateByExtension[getExtension(path)] ?? ""
-
-const getTabLabel = (path: string): string =>
-	path === SETTINGS_TAB_ID ? "Settings" : getBaseName(path)
-
-const getTabIconForPath = (path: string): LucideIcon =>
-	path === SETTINGS_TAB_ID ? Settings : getFileIconForPath(path)
-
-const getParentFolders = (path: string): string[] => {
-	const folders: string[] = []
-	let current = getParentPath(path)
-
-	while (current && current !== "/") {
-		folders.unshift(current)
-		current = getParentPath(current)
-	}
-
-	return folders
-}
-
-const getAncestors = (path: string): string[] => {
-	const ancestors: string[] = ["/"]
-	let current = getParentPath(path)
-
-	while (current && current !== "/") {
-		ancestors.push(current)
-		current = getParentPath(current)
-	}
-
-	return ancestors
-}
-
-const unique = (values: string[]): string[] => Array.from(new Set(values))
-
-const sortWorkspaceEntries = (entries: WorkspaceEntry[]): WorkspaceEntry[] =>
-	[...entries].sort((a, b) => a.path.localeCompare(b.path))
-
-const isFileEntry = (entry: WorkspaceEntry): entry is WorkspaceFileEntry =>
-	entry.kind === "file"
-
-const isFolderEntry = (entry: WorkspaceEntry): entry is WorkspaceFolderEntry =>
-	entry.kind === "folder"
-
-const buildFolderPathSet = (entries: WorkspaceEntry[]): Set<string> => {
-	const folders = new Set<string>(["/"])
-
-	for (const entry of entries) {
-		if (isFolderEntry(entry)) {
-			folders.add(entry.path)
-		}
-
-		for (const parent of getParentFolders(entry.path)) {
-			folders.add(parent)
-		}
-	}
-
-	return folders
-}
-
-const createStringFile = (path: string, content: string): WASIFile => ({
-	path,
-	mode: "string",
-	content,
-	timestamps: {
-		access: new Date(),
-		modification: new Date(),
-		change: new Date(),
-	},
-})
-
-const getBinaryURLFromFS = (fs: WASIFS, fsPath: string): string | null => {
-	const file = fs[fsPath]
-	if (!file || file.mode !== "binary") return null
-	const wasmBytes = new Uint8Array(file.content.byteLength)
-	wasmBytes.set(file.content)
-	return URL.createObjectURL(new Blob([wasmBytes], { type: "application/wasm" }))
-}
-
-const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''")
 
 /* ───────── App ───────── */
 
 function App() {
 	const runnoRef = useRef<RunElement | null>(null)
-	const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 	const monacoRef = useRef<Monaco | null>(null)
 	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
-	const vimKeydownDisposableRef = useRef<{ dispose: () => void } | null>(null)
-	const vimModeRef = useRef<VimInteractionMode>("insert")
-	const vimPendingActionRef = useRef<"d" | "y" | "c" | null>(null)
-	const vimPendingPrefixRef = useRef<"g" | null>(null)
-	const vimPendingTextObjectRef = useRef<"i" | "a" | null>(null)
-	const vimCountBufferRef = useRef("")
-	const vimYankedTextRef = useRef<string>("")
-	const vimYankWasLineRef = useRef(false)
 
-	const [entries, setEntries] = useState<WorkspaceEntry[]>([])
-	const [selectedPath, setSelectedPath] = useState<string | null>(null)
-	const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-	const [openTabs, setOpenTabs] = useState<string[]>([])
-	const [expandedFolders, setExpandedFolders] = useState<string[]>(["/"])
-	const [pendingCreation, setPendingCreation] = useState<PendingCreation | null>(
-		null,
-	)
-	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
-	const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
-
-	const [terminalKey, setTerminalKey] = useState(0)
-	const [runError, setRunError] = useState<string | null>(null)
+	/* ── Settings state ── */
 	const [settingsKeybinding, setSettingsKeybinding] =
 		useState<KeybindingMode>(readStoredKeybinding)
 	const [settingsTheme, setSettingsTheme] = useState<ThemeMode>(readStoredTheme)
@@ -944,30 +64,50 @@ function App() {
 	const [settingsRelativeLineNumbers, setSettingsRelativeLineNumbers] = useState(
 		readStoredRelativeLineNumbers,
 	)
-	const [vimMode, setVimMode] = useState<VimInteractionMode>("insert")
+
+	/* ── Run state ── */
+	const [terminalKey, setTerminalKey] = useState(0)
+	const [runError, setRunError] = useState<string | null>(null)
+	const [isRunning, setIsRunning] = useState(false)
+	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
+
+	/* ── Editor cursor state ── */
 	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
 		lineNumber: 1,
 		column: 1,
 	})
-	const [showSupportedLanguages, setShowSupportedLanguages] = useState(false)
-	const [isRunning, setIsRunning] = useState(false)
 
-	const fileEntries = useMemo(
-		() => entries.filter(isFileEntry).sort((a, b) => a.path.localeCompare(b.path)),
-		[entries],
-	)
+	/* ── Workspace hook ── */
+	const workspace = useWorkspace()
+	const {
+		selectedPath,
+		activeFilePath,
+		openTabs,
+		expandedFolders,
+		fileEntries,
+		fileByPath,
+		folderPathSet,
+		folderPaths,
+		pendingCreation,
+		workspaceError,
+		isWorkspaceReady,
+		setPendingCreation,
+		selectPath,
+		activateTab,
+		openSettingsTab,
+		closeTab,
+		toggleFolder,
+		beginCreateEntry,
+		commitPendingCreation,
+		deleteSelected,
+		onEditorChange,
+	} = workspace
 
-	const fileByPath = useMemo(
-		() => new Map(fileEntries.map((entry) => [entry.path, entry])),
-		[fileEntries],
-	)
+	/* ── Vim hook ── */
+	const vim = useVim(monacoRef, editorRef, settingsKeybinding)
+	const { vimMode, stopVimKeybindings, applyKeybindingMode } = vim
 
-	const folderPathSet = useMemo(() => buildFolderPathSet(entries), [entries])
-	const folderPaths = useMemo(
-		() => Array.from(folderPathSet).sort((a, b) => a.localeCompare(b)),
-		[folderPathSet],
-	)
-
+	/* ── Derived ── */
 	const isSettingsTabActive = activeFilePath === SETTINGS_TAB_ID
 	const selectedFile = activeFilePath ? fileByPath.get(activeFilePath) ?? null : null
 	const selectedTabLabel = isSettingsTabActive
@@ -982,869 +122,17 @@ function App() {
 		: "plaintext"
 	const selectedMonacoTheme =
 		settingsTheme === "light" ? CATPPUCCIN_LATTE_THEME : TOKYO_NIGHT_THEME
+
 	const editorStats = useMemo(() => {
 		if (!selectedFile) return { lines: 0, words: 0, chars: 0 }
-
 		const content = selectedFile.content
 		const lines = content.length === 0 ? 1 : content.split(/\r\n|\r|\n/u).length
 		const words = content.trim().length === 0 ? 0 : content.trim().split(/\s+/u).length
 		const chars = content.length
-
 		return { lines, words, chars }
 	}, [selectedFile])
-	const keybindingModeLabel = vimMode === "normal" ? "NORMAL" : "INSERT"
 
-	const applyEditorCursorStyle = (
-		keybindingOverride?: KeybindingMode,
-		modeOverride?: VimInteractionMode,
-		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
-	) => {
-		const editor = editorOverride ?? editorRef.current
-		if (!editor) return
-
-		const keybinding = keybindingOverride ?? settingsKeybinding
-		const mode = modeOverride ?? vimModeRef.current
-		const isVimNormalMode = keybinding === "vim" && mode === "normal"
-
-		editor.updateOptions({
-			cursorStyle: isVimNormalMode ? "block" : "line",
-			cursorBlinking: isVimNormalMode ? "solid" : "blink",
-		})
-	}
-
-	const applyLineNumberMode = (
-		relativeLineNumbersEnabled: boolean,
-		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
-	) => {
-		const editor = editorOverride ?? editorRef.current
-		if (!editor) return
-
-		editor.updateOptions({
-			lineNumbers: relativeLineNumbersEnabled ? "relative" : "on",
-		})
-	}
-
-	const setVimInteractionMode = (mode: VimInteractionMode) => {
-		vimModeRef.current = mode
-		setVimMode(mode)
-		applyEditorCursorStyle(undefined, mode)
-	}
-
-	const resetVimPendingState = () => {
-		vimPendingActionRef.current = null
-		vimPendingPrefixRef.current = null
-		vimPendingTextObjectRef.current = null
-		vimCountBufferRef.current = ""
-	}
-
-	const takeVimCount = (): number => {
-		const rawCount = vimCountBufferRef.current
-		vimCountBufferRef.current = ""
-		const parsed = Number.parseInt(rawCount || "1", 10)
-		return Number.isNaN(parsed) || parsed < 1 ? 1 : parsed
-	}
-
-	const repeatByCount = (count: number, action: () => void) => {
-		for (let index = 0; index < Math.max(1, count); index += 1) {
-			action()
-		}
-	}
-
-	const stopVimKeybindings = () => {
-		vimKeydownDisposableRef.current?.dispose()
-		vimKeydownDisposableRef.current = null
-		resetVimPendingState()
-		setVimInteractionMode("insert")
-	}
-
-	const moveCursorToLineStart = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		lineNumber: number,
-	) => {
-		const model = editor.getModel()
-		if (!model) return
-		editor.setPosition({ lineNumber, column: 1 })
-	}
-
-	const moveCursorToLineFirstNonWhitespace = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		lineNumber: number,
-	) => {
-		const model = editor.getModel()
-		if (!model) return
-		const firstNonWhitespaceColumn = model.getLineFirstNonWhitespaceColumn(lineNumber)
-		editor.setPosition({
-			lineNumber,
-			column: firstNonWhitespaceColumn > 0 ? firstNonWhitespaceColumn : 1,
-		})
-	}
-
-	const isVimWordCharacter = (value: string): boolean => /[A-Za-z0-9_]/u.test(value)
-
-	const buildWordObjectRange = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		around: boolean,
-	) => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!model || !monaco || !position) return null
-
-		const lineContent = model.getLineContent(position.lineNumber)
-		if (lineContent.length === 0) return null
-
-		let cursorIndex = Math.max(0, Math.min(position.column - 1, lineContent.length - 1))
-		if (!isVimWordCharacter(lineContent[cursorIndex] ?? "")) {
-			let rightIndex = cursorIndex
-			while (
-				rightIndex < lineContent.length &&
-				!isVimWordCharacter(lineContent[rightIndex] ?? "")
-			) {
-				rightIndex += 1
-			}
-
-			if (rightIndex < lineContent.length) {
-				cursorIndex = rightIndex
-			} else {
-				let leftIndex = cursorIndex - 1
-				while (leftIndex >= 0 && !isVimWordCharacter(lineContent[leftIndex] ?? "")) {
-					leftIndex -= 1
-				}
-				if (leftIndex < 0) return null
-				cursorIndex = leftIndex
-			}
-		}
-
-		let startIndex = cursorIndex
-		while (
-			startIndex > 0 &&
-			isVimWordCharacter(lineContent[startIndex - 1] ?? "")
-		) {
-			startIndex -= 1
-		}
-
-		let endIndex = cursorIndex + 1
-		while (
-			endIndex < lineContent.length &&
-			isVimWordCharacter(lineContent[endIndex] ?? "")
-		) {
-			endIndex += 1
-		}
-
-		if (around) {
-			let trailingIndex = endIndex
-			while (trailingIndex < lineContent.length && /\s/u.test(lineContent[trailingIndex])) {
-				trailingIndex += 1
-			}
-			if (trailingIndex > endIndex) {
-				endIndex = trailingIndex
-			} else {
-				while (startIndex > 0 && /\s/u.test(lineContent[startIndex - 1])) {
-					startIndex -= 1
-				}
-			}
-		}
-
-		return new monaco.Range(
-			position.lineNumber,
-			startIndex + 1,
-			position.lineNumber,
-			endIndex + 1,
-		)
-	}
-
-	const deleteLineRange = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		lineCountToDelete: number,
-	) => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		if (!model || !monaco) return
-
-		const position = editor.getPosition()
-		if (!position) return
-
-		const startLine = position.lineNumber
-		const lastLine = model.getLineCount()
-		const endLine = Math.min(startLine + lineCountToDelete - 1, lastLine)
-		const yankRange = new monaco.Range(
-			startLine,
-			1,
-			endLine,
-			model.getLineMaxColumn(endLine),
-		)
-		const yankedText = model.getValueInRange(yankRange)
-		vimYankedTextRef.current = `${yankedText}${endLine < lastLine ? "\n" : ""}`
-		vimYankWasLineRef.current = true
-
-		const deletionRange =
-			endLine < lastLine
-				? new monaco.Range(startLine, 1, endLine + 1, 1)
-				: new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine))
-
-		editor.executeEdits("nimbus-vim", [{ range: deletionRange, text: "" }])
-		const targetLine = Math.min(startLine, Math.max(1, model.getLineCount()))
-		moveCursorToLineStart(editor, targetLine)
-	}
-
-	const yankLineRange = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		lineCountToYank: number,
-	) => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!model || !monaco || !position) return
-
-		const startLine = position.lineNumber
-		const lastLine = model.getLineCount()
-		const endLine = Math.min(startLine + lineCountToYank - 1, lastLine)
-		const range = new monaco.Range(
-			startLine,
-			1,
-			endLine,
-			model.getLineMaxColumn(endLine),
-		)
-		const text = model.getValueInRange(range)
-		vimYankedTextRef.current = `${text}${endLine < lastLine ? "\n" : ""}`
-		vimYankWasLineRef.current = true
-	}
-
-	const pasteVimYank = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		before = false,
-	) => {
-		const text = vimYankedTextRef.current
-		const monaco = monacoRef.current
-		const model = editor.getModel()
-		const position = editor.getPosition()
-		if (!text || !monaco || !model || !position) return
-
-		if (vimYankWasLineRef.current) {
-			const insertLine = before
-				? position.lineNumber
-				: Math.min(position.lineNumber + 1, model.getLineCount() + 1)
-			const insertRange = new monaco.Range(insertLine, 1, insertLine, 1)
-			editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
-			moveCursorToLineStart(editor, insertLine)
-			return
-		}
-
-		const maxColumn = model.getLineMaxColumn(position.lineNumber)
-		const insertColumn = before
-			? position.column
-			: Math.min(position.column + 1, maxColumn)
-		const insertRange = new monaco.Range(
-			position.lineNumber,
-			insertColumn,
-			position.lineNumber,
-			insertColumn,
-		)
-		editor.executeEdits("nimbus-vim", [{ range: insertRange, text }])
-		editor.setPosition({
-			lineNumber: position.lineNumber,
-			column: insertColumn,
-		})
-	}
-
-	const deleteSelectionRange = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		range: {
-			startLineNumber: number
-			startColumn: number
-			endLineNumber: number
-			endColumn: number
-		},
-	) => {
-		const model = editor.getModel()
-		if (model) {
-			vimYankedTextRef.current = model.getValueInRange(range)
-			vimYankWasLineRef.current = false
-		}
-
-		editor.executeEdits("nimbus-vim", [{ range, text: "" }])
-		editor.setPosition({
-			lineNumber: range.startLineNumber,
-			column: range.startColumn,
-		})
-	}
-
-	const yankSelectionRange = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		range: {
-			startLineNumber: number
-			startColumn: number
-			endLineNumber: number
-			endColumn: number
-		},
-	) => {
-		const model = editor.getModel()
-		if (!model) return
-		vimYankedTextRef.current = model.getValueInRange(range)
-		vimYankWasLineRef.current = false
-		editor.setPosition({
-			lineNumber: range.endLineNumber,
-			column: range.endColumn,
-		})
-	}
-
-	const deleteCharacters = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		count: number,
-		direction: "left" | "right",
-	) => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!model || !monaco || !position) return
-
-		if (direction === "right") {
-			const maxColumn = model.getLineMaxColumn(position.lineNumber)
-			if (position.column < maxColumn) {
-				const endColumn = Math.min(position.column + count, maxColumn)
-				deleteSelectionRange(
-					editor,
-					new monaco.Range(
-						position.lineNumber,
-						position.column,
-						position.lineNumber,
-						endColumn,
-					),
-				)
-				return
-			}
-
-			if (position.lineNumber < model.getLineCount()) {
-				deleteSelectionRange(
-					editor,
-					new monaco.Range(
-						position.lineNumber,
-						maxColumn,
-						position.lineNumber + 1,
-						1,
-					),
-				)
-			}
-			return
-		}
-
-		if (position.column <= 1) return
-		const startColumn = Math.max(1, position.column - count)
-		deleteSelectionRange(
-			editor,
-			new monaco.Range(
-				position.lineNumber,
-				startColumn,
-				position.lineNumber,
-				position.column,
-			),
-		)
-	}
-
-	const deleteToLineEnd = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		enterInsertMode: boolean,
-	) => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!model || !monaco || !position) {
-			if (enterInsertMode) setVimInteractionMode("insert")
-			return
-		}
-
-		const maxColumn = model.getLineMaxColumn(position.lineNumber)
-		if (position.column < maxColumn) {
-			deleteSelectionRange(
-				editor,
-				new monaco.Range(
-					position.lineNumber,
-					position.column,
-					position.lineNumber,
-					maxColumn,
-				),
-			)
-		}
-
-		if (enterInsertMode) {
-			setVimInteractionMode("insert")
-		}
-	}
-
-	const selectByMotion = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		motionKey: string,
-		count: number,
-	): boolean => {
-		const model = editor.getModel()
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!model || !monaco || !position) return false
-
-		switch (motionKey) {
-			case "w":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorWordStartRightSelect", null)
-				})
-				return true
-			case "b":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorWordStartLeftSelect", null)
-				})
-				return true
-			case "e":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorWordEndRightSelect", null)
-				})
-				return true
-			case "h":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorLeftSelect", null)
-				})
-				return true
-			case "j":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorDownSelect", null)
-				})
-				return true
-			case "k":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorUpSelect", null)
-				})
-				return true
-			case "l":
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "cursorRightSelect", null)
-				})
-				return true
-			case "$":
-				editor.trigger("nimbus-vim", "cursorLineEndSelect", null)
-				return true
-			case "0":
-				editor.trigger("nimbus-vim", "cursorLineStartSelect", null)
-				return true
-			case "^": {
-				const firstNonWhitespaceColumn =
-					model.getLineFirstNonWhitespaceColumn(position.lineNumber) || 1
-				editor.setSelection(
-					new monaco.Selection(
-						position.lineNumber,
-						position.column,
-						position.lineNumber,
-						firstNonWhitespaceColumn,
-					),
-				)
-				return true
-			}
-			default:
-				return false
-		}
-	}
-
-	const applyPendingOperator = (
-		editor: Monaco["editor"]["IStandaloneCodeEditor"],
-		key: string,
-		lowerKey: string,
-	): boolean => {
-		const pendingAction = vimPendingActionRef.current
-		const monaco = monacoRef.current
-		const position = editor.getPosition()
-		if (!pendingAction || !monaco || !position) return false
-
-		const pendingTextObject = vimPendingTextObjectRef.current
-		if (pendingTextObject) {
-			vimPendingTextObjectRef.current = null
-			if (lowerKey !== "w") {
-				vimPendingActionRef.current = null
-				takeVimCount()
-				return true
-			}
-
-			const wordObjectRange = buildWordObjectRange(editor, pendingTextObject === "a")
-			if (!wordObjectRange) {
-				vimPendingActionRef.current = null
-				takeVimCount()
-				return true
-			}
-
-			if (pendingAction === "y") {
-				yankSelectionRange(editor, wordObjectRange)
-			} else {
-				deleteSelectionRange(editor, wordObjectRange)
-				if (pendingAction === "c") {
-					setVimInteractionMode("insert")
-				}
-			}
-
-			vimPendingActionRef.current = null
-			takeVimCount()
-			return true
-		}
-
-		if (lowerKey === "i" || lowerKey === "a") {
-			vimPendingTextObjectRef.current = lowerKey
-			return true
-		}
-
-		const count = takeVimCount()
-		const isDoubleAction =
-			(pendingAction === "d" && lowerKey === "d") ||
-			(pendingAction === "y" && lowerKey === "y") ||
-			(pendingAction === "c" && lowerKey === "c")
-
-		if (isDoubleAction) {
-			if (pendingAction === "d") {
-				deleteLineRange(editor, count)
-			}
-			if (pendingAction === "y") {
-				yankLineRange(editor, count)
-			}
-			if (pendingAction === "c") {
-				deleteLineRange(editor, count)
-				setVimInteractionMode("insert")
-			}
-			vimPendingActionRef.current = null
-			vimPendingTextObjectRef.current = null
-			return true
-		}
-
-		editor.setSelection(
-			new monaco.Selection(
-				position.lineNumber,
-				position.column,
-				position.lineNumber,
-				position.column,
-			),
-		)
-
-		const motionApplied = selectByMotion(editor, key, count)
-		const selection = editor.getSelection()
-		const hasSelection =
-			selection &&
-			!(
-				selection.startLineNumber === selection.endLineNumber &&
-				selection.startColumn === selection.endColumn
-			)
-
-		if (!motionApplied || !selection || !hasSelection) {
-			vimPendingActionRef.current = null
-			vimPendingTextObjectRef.current = null
-			return true
-		}
-
-		if (pendingAction === "y") {
-			yankSelectionRange(editor, selection)
-		} else {
-			deleteSelectionRange(editor, selection)
-			if (pendingAction === "c") {
-				setVimInteractionMode("insert")
-			}
-		}
-
-		vimPendingActionRef.current = null
-		vimPendingTextObjectRef.current = null
-		return true
-	}
-
-	const startVimKeybindings = (editor: Monaco["editor"]["IStandaloneCodeEditor"]) => {
-		stopVimKeybindings()
-		setVimInteractionMode("normal")
-
-		vimKeydownDisposableRef.current = editor.onKeyDown((event: {
-			browserEvent: KeyboardEvent
-			preventDefault: () => void
-			stopPropagation: () => void
-		}) => {
-			const browserEvent = event.browserEvent
-			const key = browserEvent.key
-			const lowerKey = key.toLowerCase()
-			const ctrlOrMeta = browserEvent.ctrlKey || browserEvent.metaKey
-
-			if (ctrlOrMeta && lowerKey !== "r") return
-
-			if (key === "Escape") {
-				event.preventDefault()
-				event.stopPropagation()
-				resetVimPendingState()
-				setVimInteractionMode("normal")
-				return
-			}
-
-			if (vimModeRef.current === "insert") {
-				return
-			}
-
-			event.preventDefault()
-			event.stopPropagation()
-
-			if (/^[0-9]$/u.test(key)) {
-				const zeroIsOperatorMotion =
-					key === "0" &&
-					vimCountBufferRef.current.length === 0 &&
-					!!vimPendingActionRef.current
-				if (zeroIsOperatorMotion) {
-					// Let pending operator consume `0` as a motion (e.g. d0, y0, c0)
-				} else
-				if (
-					key === "0" &&
-					vimCountBufferRef.current.length === 0 &&
-					!vimPendingActionRef.current &&
-					!vimPendingPrefixRef.current
-				) {
-					editor.trigger("nimbus-vim", "cursorLineStart", null)
-					return
-				} else {
-					vimCountBufferRef.current += key
-					return
-				}
-			}
-
-			if (vimPendingPrefixRef.current === "g") {
-				vimPendingPrefixRef.current = null
-				if (lowerKey === "g") {
-					const model = editor.getModel()
-					if (!model) return
-					const requestedLine = takeVimCount()
-					const targetLine = Math.min(
-						Math.max(1, requestedLine),
-						model.getLineCount(),
-					)
-					moveCursorToLineStart(editor, targetLine)
-				}
-				return
-			}
-
-			if (applyPendingOperator(editor, key, lowerKey)) {
-				return
-			}
-
-			if (ctrlOrMeta && lowerKey === "r") {
-				const count = takeVimCount()
-				repeatByCount(count, () => {
-					editor.trigger("nimbus-vim", "redo", null)
-				})
-				return
-			}
-
-			switch (key) {
-				case "i":
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				case "I": {
-					const position = editor.getPosition()
-					if (position) {
-						moveCursorToLineFirstNonWhitespace(editor, position.lineNumber)
-					}
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				}
-				case "a": {
-					const model = editor.getModel()
-					const position = editor.getPosition()
-					if (model && position) {
-						const maxColumn = model.getLineMaxColumn(position.lineNumber)
-						const nextColumn =
-							position.column < maxColumn ? position.column + 1 : position.column
-						editor.setPosition({
-							lineNumber: position.lineNumber,
-							column: nextColumn,
-						})
-					}
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				}
-				case "A": {
-					editor.trigger("nimbus-vim", "cursorLineEnd", null)
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				}
-				case "o": {
-					const model = editor.getModel()
-					const monaco = monacoRef.current
-					const position = editor.getPosition()
-					if (model && monaco && position) {
-						const maxColumn = model.getLineMaxColumn(position.lineNumber)
-						const insertRange = new monaco.Range(
-							position.lineNumber,
-							maxColumn,
-							position.lineNumber,
-							maxColumn,
-						)
-						editor.executeEdits("nimbus-vim", [{ range: insertRange, text: "\n" }])
-						editor.setPosition({
-							lineNumber: position.lineNumber + 1,
-							column: 1,
-						})
-					}
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				}
-				case "O": {
-					const monaco = monacoRef.current
-					const position = editor.getPosition()
-					if (monaco && position) {
-						const insertRange = new monaco.Range(
-							position.lineNumber,
-							1,
-							position.lineNumber,
-							1,
-						)
-						editor.executeEdits("nimbus-vim", [{ range: insertRange, text: "\n" }])
-						editor.setPosition({
-							lineNumber: position.lineNumber,
-							column: 1,
-						})
-					}
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				}
-				case "h":
-				case "ArrowLeft":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorLeft", null)
-					})
-					return
-				case "j":
-				case "ArrowDown":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorDown", null)
-					})
-					return
-				case "k":
-				case "ArrowUp":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorUp", null)
-					})
-					return
-				case "l":
-				case "ArrowRight":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorRight", null)
-					})
-					return
-				case "w":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorWordStartRight", null)
-					})
-					return
-				case "b":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorWordStartLeft", null)
-					})
-					return
-				case "e":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "cursorWordEndRight", null)
-					})
-					return
-				case "Home":
-					editor.trigger("nimbus-vim", "cursorLineStart", null)
-					return
-				case "^": {
-					const position = editor.getPosition()
-					if (position) {
-						moveCursorToLineFirstNonWhitespace(editor, position.lineNumber)
-					}
-					return
-				}
-				case "$":
-				case "End":
-					editor.trigger("nimbus-vim", "cursorLineEnd", null)
-					return
-				case "x":
-				case "Delete":
-					deleteCharacters(editor, takeVimCount(), "right")
-					return
-				case "X":
-					deleteCharacters(editor, takeVimCount(), "left")
-					return
-				case "D":
-					deleteToLineEnd(editor, false)
-					resetVimPendingState()
-					return
-				case "C":
-					deleteToLineEnd(editor, true)
-					resetVimPendingState()
-					return
-				case "Y":
-					yankLineRange(editor, takeVimCount())
-					resetVimPendingState()
-					return
-				case "s":
-					deleteCharacters(editor, takeVimCount(), "right")
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				case "S":
-					deleteLineRange(editor, takeVimCount())
-					resetVimPendingState()
-					setVimInteractionMode("insert")
-					return
-				case "u":
-					repeatByCount(takeVimCount(), () => {
-						editor.trigger("nimbus-vim", "undo", null)
-					})
-					return
-				case "p":
-					pasteVimYank(editor)
-					return
-				case "P":
-					pasteVimYank(editor, true)
-					return
-				case "d":
-					vimPendingPrefixRef.current = null
-					vimPendingActionRef.current = "d"
-					return
-				case "y":
-					vimPendingPrefixRef.current = null
-					vimPendingActionRef.current = "y"
-					return
-				case "c":
-					vimPendingPrefixRef.current = null
-					vimPendingActionRef.current = "c"
-					return
-				case "g":
-					vimPendingPrefixRef.current = "g"
-					return
-				case "G": {
-					const model = editor.getModel()
-					if (!model) return
-					const hasExplicitCount = vimCountBufferRef.current.length > 0
-					const count = takeVimCount()
-					const targetLine = hasExplicitCount
-						? Math.min(Math.max(1, count), model.getLineCount())
-						: model.getLineCount()
-					moveCursorToLineStart(editor, targetLine)
-					return
-				}
-				default:
-					resetVimPendingState()
-					return
-			}
-		})
-	}
-
-	const applyKeybindingMode = (
-		mode: KeybindingMode,
-		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
-	) => {
-		const editor = editorOverride ?? editorRef.current
-		if (!editor) return
-
-		if (mode === "vim") {
-			startVimKeybindings(editor)
-			return
-		}
-
-		stopVimKeybindings()
-		applyEditorCursorStyle(mode, "insert", editor)
-	}
+	/* ── Completion helpers ── */
 
 	const disposeSimpleCompletionProviders = () => {
 		for (const disposable of completionDisposablesRef.current) {
@@ -1859,11 +147,21 @@ function App() {
 	) => {
 		const editor = editorOverride ?? editorRef.current
 		if (!editor) return
-
 		editor.updateOptions({
 			quickSuggestions: enabled,
 			suggestOnTriggerCharacters: enabled,
 			snippetSuggestions: enabled ? "inline" : "none",
+		})
+	}
+
+	const applyLineNumberMode = (
+		relativeLineNumbersEnabled: boolean,
+		editorOverride?: Monaco["editor"]["IStandaloneCodeEditor"],
+	) => {
+		const editor = editorOverride ?? editorRef.current
+		if (!editor) return
+		editor.updateOptions({
+			lineNumbers: relativeLineNumbersEnabled ? "relative" : "on",
 		})
 	}
 
@@ -1874,14 +172,12 @@ function App() {
 		if (monacoOverride) {
 			monacoRef.current = monacoOverride
 		}
-
 		disposeSimpleCompletionProviders()
 		if (!enabled || !monacoRef.current) return
-
-		completionDisposablesRef.current = registerSimpleLanguageCompletions(
-			monacoRef.current,
-		)
+		completionDisposablesRef.current = registerSimpleLanguageCompletions(monacoRef.current)
 	}
+
+	/* ── Editor mount ── */
 
 	const handleEditorMount = (
 		editor: Monaco["editor"]["IStandaloneCodeEditor"],
@@ -1892,6 +188,7 @@ function App() {
 		applyCompletionEditorOptions(settingsCompletionsEnabled, editor)
 		applyLineNumberMode(settingsRelativeLineNumbers, editor)
 		applyKeybindingMode(settingsKeybinding, editor)
+
 		const initialPosition = editor.getPosition()
 		if (initialPosition) {
 			setEditorCursor({
@@ -1918,24 +215,11 @@ function App() {
 		})
 	}
 
+	/* ── Terminal helpers ── */
+
 	const fitRunnoTerminal = () => {
 		const terminal = runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as
-			| (HTMLElement & {
-					onResize?: () => void
-					run?: (
-						binaryPath: string,
-						binaryName: string,
-						fs: WASIFS,
-						args: string[],
-						env: Record<string, string>,
-					) => Promise<{
-						resultType: "complete" | "crash" | "terminated" | "timeout"
-						exitCode?: number
-						error?: { message: string }
-					}>
-				})
-			| null
-
+			| (HTMLElement & { onResize?: () => void }) | null
 		terminal?.onResize?.()
 	}
 
@@ -1943,7 +227,6 @@ function App() {
 		const terminalElement = runnoRef.current?.shadowRoot?.querySelector(
 			"runno-terminal",
 		) as (HTMLElement & { terminal?: { clear: () => void; write: (text: string) => void } }) | null
-
 		return {
 			clear: () => terminalElement?.terminal?.clear(),
 			write: (text: string) => terminalElement?.terminal?.write(text),
@@ -1966,6 +249,8 @@ function App() {
 					}>
 				})
 			| null
+
+	/* ── Compiled code runner (C / C++) ── */
 
 	const runCompiledCode = async (
 		runtime: CompiledRuntime,
@@ -1993,9 +278,7 @@ function App() {
 					args: [command.binaryName, ...(command.args ?? [])],
 					env: command.env ?? {},
 					fs,
-					stdout: (text) => {
-						terminal.write(text.replace(/\n/g, "\r\n"))
-					},
+					stdout: (text) => { terminal.write(text.replace(/\n/g, "\r\n")) },
 					stderr: (text) => {
 						stderrBuffer += text
 						terminal.write(text.replace(/\n/g, "\r\n"))
@@ -2029,19 +312,13 @@ function App() {
 		const binaryURL = getBinaryURLFromFS(fs, commands.run.fsPath)
 		if (!binaryURL) {
 			terminal.write("\r\n[Error] Build did not produce /program.wasm.\r\n")
-			return {
-				ok: false,
-				error: "Build did not produce /program.wasm.",
-			}
+			return { ok: false, error: "Build did not produce /program.wasm." }
 		}
 
 		try {
 			const runTerminal = getInteractiveRunTerminal()
 			if (!runTerminal?.run) {
-				return {
-					ok: false,
-					error: "Interactive terminal is unavailable for compiled runtime.",
-				}
+				return { ok: false, error: "Interactive terminal is unavailable for compiled runtime." }
 			}
 
 			const result = await runTerminal.run(
@@ -2067,10 +344,7 @@ function App() {
 			}
 		} catch (error) {
 			terminal.write(`\r\n[Error] Runtime failed for ${runtime}: ${String(error)}\r\n`)
-			return {
-				ok: false,
-				error: `Runtime failed for ${runtime}: ${String(error)}`,
-			}
+			return { ok: false, error: `Runtime failed for ${runtime}: ${String(error)}` }
 		} finally {
 			URL.revokeObjectURL(binaryURL)
 		}
@@ -2078,13 +352,70 @@ function App() {
 		return { ok: true }
 	}
 
-	useEffect(() => {
-		const frame = requestAnimationFrame(() => {
-			fitRunnoTerminal()
-		})
+	/* ── Run code ── */
 
+	const runCode = async () => {
+		if (isRunning || !runnoRef.current) return
+
+		const crossOriginIsolationError = getCrossOriginIsolationError()
+		if (crossOriginIsolationError) {
+			setRunError(crossOriginIsolationError)
+			return
+		}
+
+		if (!selectedFile) {
+			setRunError("Select a file to run.")
+			return
+		}
+
+		if (!selectedRuntime) {
+			setRunError(
+				`No runtime mapped for ${selectedFile.path}. Use .js, .py, .c, .cpp, .php, .sql, or .rb.`,
+			)
+			return
+		}
+
+		setIsRunning(true)
+		setRunError(null)
+		fitRunnoTerminal()
+
+		try {
+			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
+				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
+				if (!result.ok) return
+				return
+			}
+
+			const codeToRun =
+				selectedRuntime === "sqlite"
+					? (() => {
+							if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
+							const safeName = escapeSqlLiteral("friend")
+							return selectedFile.content.replaceAll("{{name}}", safeName)
+						})()
+					: selectedFile.content
+
+			await runnoRef.current.interactiveRunCode(selectedRuntime, codeToRun)
+		} catch (error) {
+			setRunError(String(error))
+		} finally {
+			setIsRunning(false)
+		}
+	}
+
+	const clearTerminal = () => {
+		setRunError(null)
+		setTerminalKey((prev) => prev + 1)
+	}
+
+	/* ── Effects: terminal resize ── */
+
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => { fitRunnoTerminal() })
 		return () => cancelAnimationFrame(frame)
 	}, [selectedRuntime, terminalKey])
+
+	/* ── Effects: terminal theme ── */
 
 	useEffect(() => {
 		const applyRunnoTerminalTheme = () => {
@@ -2133,20 +464,14 @@ function App() {
 		}
 	}, [settingsTheme, selectedRuntime, terminalKey])
 
+	/* ── Effects: localStorage sync ── */
+
 	useEffect(() => {
-		try {
-			window.localStorage.setItem(THEME_STORAGE_KEY, settingsTheme)
-		} catch {
-			// Ignore storage failures (private mode / disabled storage)
-		}
+		try { window.localStorage.setItem(THEME_STORAGE_KEY, settingsTheme) } catch { /* noop */ }
 	}, [settingsTheme])
 
 	useEffect(() => {
-		try {
-			window.localStorage.setItem(KEYBINDING_STORAGE_KEY, settingsKeybinding)
-		} catch {
-			// Ignore storage failures (private mode / disabled storage)
-		}
+		try { window.localStorage.setItem(KEYBINDING_STORAGE_KEY, settingsKeybinding) } catch { /* noop */ }
 	}, [settingsKeybinding])
 
 	useEffect(() => {
@@ -2155,9 +480,7 @@ function App() {
 				COMPLETIONS_STORAGE_KEY,
 				settingsCompletionsEnabled ? "true" : "false",
 			)
-		} catch {
-			// Ignore storage failures (private mode / disabled storage)
-		}
+		} catch { /* noop */ }
 	}, [settingsCompletionsEnabled])
 
 	useEffect(() => {
@@ -2166,18 +489,19 @@ function App() {
 				RELATIVE_LINE_NUMBERS_STORAGE_KEY,
 				settingsRelativeLineNumbers ? "true" : "false",
 			)
-		} catch {
-			// Ignore storage failures (private mode / disabled storage)
-		}
+		} catch { /* noop */ }
 	}, [settingsRelativeLineNumbers])
+
+	/* ── Effects: run error output ── */
 
 	useEffect(() => {
 		if (!runError) return
-
 		const terminal = getTerminalWriter()
 		terminal.write(`\r\n[Error] ${runError}\r\n`)
 		setRunError(null)
 	}, [runError])
+
+	/* ── Effects: completions sync ── */
 
 	useEffect(() => {
 		const monacoInstance = monacoRef.current
@@ -2187,8 +511,7 @@ function App() {
 		completionDisposablesRef.current = []
 
 		if (monacoInstance && settingsCompletionsEnabled) {
-			completionDisposablesRef.current =
-				registerSimpleLanguageCompletions(monacoInstance)
+			completionDisposablesRef.current = registerSimpleLanguageCompletions(monacoInstance)
 		}
 
 		const editor = editorRef.current
@@ -2213,58 +536,16 @@ function App() {
 		const editor = editorRef.current
 		const position = editor?.getPosition()
 		if (position) {
-			setEditorCursor({
-				lineNumber: position.lineNumber,
-				column: position.column,
-			})
+			setEditorCursor({ lineNumber: position.lineNumber, column: position.column })
 			return
 		}
-
 		setEditorCursor({ lineNumber: 1, column: 1 })
 	}, [activeFilePath])
 
-	useEffect(() => {
-		let cancelled = false
-
-		const loadWorkspace = async () => {
-			try {
-				const persisted = await listWorkspaceEntries()
-				const source = persisted.length > 0 ? persisted : initialWorkspace
-
-				if (persisted.length === 0) {
-					await putWorkspaceEntries(source)
-				}
-
-				if (cancelled) return
-
-				const firstFilePath = source.find(isFileEntry)?.path ?? null
-				setEntries(sortWorkspaceEntries(source))
-				setSelectedPath(firstFilePath)
-				setActiveFilePath(firstFilePath)
-				setOpenTabs(firstFilePath ? [firstFilePath] : [])
-				setExpandedFolders(["/"])
-				setWorkspaceError(null)
-				setIsWorkspaceReady(true)
-			} catch (error) {
-				if (cancelled) return
-				setWorkspaceError(`Failed to load workspace: ${String(error)}`)
-			}
-		}
-
-		void loadWorkspace()
-
-		return () => {
-			cancelled = true
-		}
-	}, [])
+	/* ── Effects: cleanup ── */
 
 	useEffect(() => {
-		const timers = saveTimersRef.current
-
 		return () => {
-			for (const timer of Object.values(timers)) {
-				clearTimeout(timer)
-			}
 			stopVimKeybindings()
 			for (const disposable of completionDisposablesRef.current) {
 				disposable.dispose()
@@ -2273,539 +554,25 @@ function App() {
 		}
 	}, [])
 
-	useEffect(() => {
-		const existingFilePaths = new Set(fileEntries.map((entry) => entry.path))
-		const filteredTabs = openTabs.filter(
-			(path) => path === SETTINGS_TAB_ID || existingFilePaths.has(path),
-		)
-
-		if (filteredTabs.length !== openTabs.length) {
-			setOpenTabs(filteredTabs)
-		}
-
-		if (
-			activeFilePath &&
-			activeFilePath !== SETTINGS_TAB_ID &&
-			!existingFilePaths.has(activeFilePath)
-		) {
-			setActiveFilePath(filteredTabs[0] ?? null)
-		}
-	}, [fileEntries, openTabs, activeFilePath])
-
-	const selectPath = (path: string) => {
-		const nextExpanded = unique([
-			...expandedFolders,
-			...getAncestors(path),
-			...(folderPathSet.has(path) ? [path] : []),
-		])
-
-		setSelectedPath(path)
-		setExpandedFolders(nextExpanded)
-
-		if (fileByPath.has(path)) {
-			setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]))
-			setActiveFilePath(path)
-		}
-	}
-
-	const activateTab = (path: string) => {
-		if (path === SETTINGS_TAB_ID) {
-			setActiveFilePath(path)
-			return
-		}
-
-		if (!fileByPath.has(path)) return
-		setActiveFilePath(path)
-		setSelectedPath(path)
-	}
-
-	const openSettingsTab = () => {
-		setOpenTabs((prev) =>
-			prev.includes(SETTINGS_TAB_ID) ? prev : [...prev, SETTINGS_TAB_ID],
-		)
-		setActiveFilePath(SETTINGS_TAB_ID)
-	}
-
-	const closeTab = (path: string) => {
-		const tabIndex = openTabs.indexOf(path)
-		if (tabIndex < 0) return
-
-		const nextTabs = openTabs.filter((tabPath) => tabPath !== path)
-		setOpenTabs(nextTabs)
-
-		if (activeFilePath === path) {
-			const fallbackPath = nextTabs[tabIndex] ?? nextTabs[tabIndex - 1] ?? null
-			setActiveFilePath(fallbackPath)
-			if (fallbackPath && fileByPath.has(fallbackPath)) {
-				setSelectedPath(fallbackPath)
-			}
-		}
-	}
-
-	const beginCreateEntry = (kind: "file" | "folder") => {
-		const selectedIsFolder = selectedPath
-			? folderPathSet.has(selectedPath) && !fileByPath.has(selectedPath)
-			: false
-		const baseFolder = selectedPath
-			? selectedIsFolder
-				? selectedPath
-				: (getParentPath(selectedPath) ?? "/")
-			: "/"
-
-		setPendingCreation({
-			kind,
-			parentPath: baseFolder,
-			value: "",
-		})
-		setExpandedFolders((prev) =>
-			unique([...prev, ...getAncestors(baseFolder), baseFolder]),
-		)
-		setWorkspaceError(null)
-	}
-
-	const commitPendingCreation = async (overrideValue?: string) => {
-		if (!pendingCreation) return
-
-		const rawInput = overrideValue ?? pendingCreation.value
-		const kind = pendingCreation.kind
-		const baseFolder = pendingCreation.parentPath
-
-		setPendingCreation(null)
-
-		const normalized = normalizePathInput(rawInput)
-		if (!normalized) return
-
-		const nextPath = joinPath(baseFolder, normalized)
-		if (fileByPath.has(nextPath) || folderPathSet.has(nextPath)) {
-			setWorkspaceError(`Path already exists: ${nextPath}`)
-			return
-		}
-
-		const now = Date.now()
-		const missingParents = getParentFolders(nextPath).filter(
-			(folderPath) => !folderPathSet.has(folderPath),
-		)
-		const parentFolders: WorkspaceFolderEntry[] = missingParents.map((path) => ({
-			path,
-			kind: "folder",
-			updatedAt: now,
-		}))
-
-		const newEntry: WorkspaceEntry =
-			kind === "file"
-				? {
-					path: nextPath,
-					kind: "file",
-					content: getTemplateForPath(nextPath),
-					updatedAt: now,
-				}
-				: {
-					path: nextPath,
-					kind: "folder",
-					updatedAt: now,
-				}
-
-		const additions = [...parentFolders, newEntry]
-		setEntries((prev) => sortWorkspaceEntries([...prev, ...additions]))
-		setExpandedFolders((prev) =>
-			unique([
-				...prev,
-				...getAncestors(nextPath),
-				...missingParents,
-				...(kind === "folder" ? [nextPath] : []),
-			]),
-		)
-		setSelectedPath(nextPath)
-		if (kind === "file") {
-			setOpenTabs((prev) => (prev.includes(nextPath) ? prev : [...prev, nextPath]))
-			setActiveFilePath(nextPath)
-		}
-		setWorkspaceError(null)
-
-		try {
-			await putWorkspaceEntries(additions)
-		} catch (error) {
-			setWorkspaceError(`Failed to save ${nextPath}: ${String(error)}`)
-		}
-	}
-
-	const deleteSelected = async () => {
-		if (!selectedPath || selectedPath === "/") return
-
-		const isFile = fileByPath.has(selectedPath)
-		const isFolder = !isFile && folderPathSet.has(selectedPath)
-		if (!isFile && !isFolder) return
-
-		const prefix = `${selectedPath}/`
-		const pathsToDelete = isFile
-			? [selectedPath]
-			: entries
-					.filter((entry) => entry.path === selectedPath || entry.path.startsWith(prefix))
-					.map((entry) => entry.path)
-
-		for (const path of pathsToDelete) {
-			const timer = saveTimersRef.current[path]
-			if (timer) {
-				clearTimeout(timer)
-				delete saveTimersRef.current[path]
-			}
-		}
-
-		const nextEntries = entries.filter((entry) =>
-			isFile
-				? entry.path !== selectedPath
-				: !(entry.path === selectedPath || entry.path.startsWith(prefix)),
-		)
-		const deletePathSet = new Set(pathsToDelete)
-		const nextTabs = openTabs.filter((path) => !deletePathSet.has(path))
-
-		const nextFolderSet = buildFolderPathSet(nextEntries)
-		const nextExpanded = expandedFolders.filter(
-			(path) => path === "/" || nextFolderSet.has(path),
-		)
-		const fallbackSelectedFile = nextEntries.filter(isFileEntry)[0] ?? null
-		let nextActivePath = activeFilePath
-		if (nextActivePath && deletePathSet.has(nextActivePath)) {
-			nextActivePath = nextTabs[0] ?? fallbackSelectedFile?.path ?? null
-		}
-		const nextSelectedPath =
-			nextActivePath ??
-			(getParentPath(selectedPath) && nextFolderSet.has(getParentPath(selectedPath) ?? "")
-				? getParentPath(selectedPath)
-				: fallbackSelectedFile?.path ?? null)
-
-		setEntries(nextEntries)
-		setExpandedFolders(nextExpanded)
-		setOpenTabs(nextTabs)
-		setActiveFilePath(nextActivePath)
-		setSelectedPath(nextSelectedPath)
-		setWorkspaceError(null)
-
-		try {
-			await deleteWorkspacePaths(pathsToDelete)
-		} catch (error) {
-			setWorkspaceError(`Failed to delete ${selectedPath}: ${String(error)}`)
-		}
-	}
-
-	const onEditorChange = (value: string | undefined) => {
-		if (!selectedFile) return
-
-		const nextContent = value ?? ""
-		const updatedEntry: WorkspaceFileEntry = {
-			...selectedFile,
-			content: nextContent,
-			updatedAt: Date.now(),
-		}
-
-		setEntries((prev) =>
-			prev.map((entry) =>
-				entry.path === selectedFile.path ? updatedEntry : entry,
-			),
-		)
-
-		const existingTimer = saveTimersRef.current[selectedFile.path]
-		if (existingTimer) {
-			clearTimeout(existingTimer)
-		}
-
-		saveTimersRef.current[selectedFile.path] = setTimeout(() => {
-			delete saveTimersRef.current[selectedFile.path]
-			void putWorkspaceEntries([updatedEntry]).catch((error) => {
-				setWorkspaceError(`Failed to save ${selectedFile.path}: ${String(error)}`)
-			})
-		}, 250)
-	}
-
-	const runCode = async () => {
-		if (isRunning || !runnoRef.current) return
-
-		const crossOriginIsolationError = getCrossOriginIsolationError()
-		if (crossOriginIsolationError) {
-			setRunError(crossOriginIsolationError)
-			return
-		}
-
-		if (!selectedFile) {
-			setRunError("Select a file to run.")
-			return
-		}
-
-		if (!selectedRuntime) {
-			setRunError(
-				`No runtime mapped for ${selectedFile.path}. Use .js, .py, .c, .cpp, .php, .sql, or .rb.`,
-			)
-			return
-		}
-
-		setIsRunning(true)
-		setRunError(null)
-		fitRunnoTerminal()
-
-		try {
-			if (selectedRuntime === "clang" || selectedRuntime === "clangpp") {
-				const result = await runCompiledCode(selectedRuntime, selectedFile.content)
-				if (!result.ok) return
-				return
-			}
-
-			const codeToRun =
-				selectedRuntime === "sqlite"
-					? (() => {
-						if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
-						const safeName = escapeSqlLiteral("friend")
-						return selectedFile.content.replaceAll("{{name}}", safeName)
-					})()
-					: selectedFile.content
-
-			await runnoRef.current.interactiveRunCode(selectedRuntime, codeToRun)
-		} catch (error) {
-			setRunError(String(error))
-		} finally {
-			setIsRunning(false)
-		}
-	}
-
-	const clearTerminal = () => {
-		setRunError(null)
-		setTerminalKey((prev) => prev + 1)
-	}
-
-	const toggleFolder = (path: string) => {
-		setExpandedFolders((prev) =>
-			prev.includes(path) ? prev.filter((value) => value !== path) : [...prev, path],
-		)
-	}
-
-	const getFolderChildren = (parentPath: string): {
-		folders: string[]
-		files: WorkspaceFileEntry[]
-	} => {
-		const folders = folderPaths
-			.filter((folderPath) => folderPath !== "/" && getParentPath(folderPath) === parentPath)
-			.sort((a, b) => a.localeCompare(b))
-		const files = fileEntries
-			.filter((fileEntry) => getParentPath(fileEntry.path) === parentPath)
-			.sort((a, b) => a.path.localeCompare(b.path))
-
-		return { folders, files }
-	}
-
-	const renderTree = (parentPath: string, depth: number): ReactNode => {
-		const { folders, files } = getFolderChildren(parentPath)
-		const isCreatingHere = pendingCreation?.parentPath === parentPath
-
-		return (
-			<>
-				{folders.map((folderPath) => {
-					const expanded = expandedFolders.includes(folderPath)
-					const active = selectedPath === folderPath
-
-					return (
-						<div key={folderPath}>
-							<div
-								className={`tree-row ${active ? "active" : ""}`}
-								style={{ paddingLeft: `${8 + depth * 14}px` }}
-							>
-								<button
-									type="button"
-									className="tree-toggle"
-									onClick={() => toggleFolder(folderPath)}
-								>
-									{expanded ? "▾" : "▸"}
-								</button>
-							<button
-								type="button"
-								className="tree-entry folder"
-								onClick={() => selectPath(folderPath)}
-							>
-								{expanded ? (
-									<FolderOpen size={14} className="inline-icon tree-icon" />
-								) : (
-									<Folder size={14} className="inline-icon tree-icon" />
-								)}
-								{getBaseName(folderPath)}
-							</button>
-							</div>
-							{expanded ? renderTree(folderPath, depth + 1) : null}
-						</div>
-					)
-				})}
-
-				{isCreatingHere && (
-					<div
-						className="tree-row creating"
-						style={{ paddingLeft: `${8 + depth * 14}px` }}
-					>
-						<span className="tree-spacer" aria-hidden="true" />
-						{pendingCreation?.kind === "folder" ? (
-							<FolderPlus size={14} className="inline-icon tree-icon" />
-						) : (
-							<FilePlus2 size={14} className="inline-icon tree-icon" />
-						)}
-						<input
-							className="tree-create-input"
-							value={pendingCreation?.value ?? ""}
-							autoFocus
-							placeholder={
-								pendingCreation?.kind === "folder"
-									? "new-folder"
-									: "new-file.ext"
-							}
-							onChange={(event) => {
-								const nextValue = event.target.value
-								setPendingCreation((prev) =>
-									prev
-										? {
-											...prev,
-											value: nextValue,
-										}
-										: null,
-								)
-							}}
-							onBlur={() => {
-								setPendingCreation(null)
-							}}
-							onKeyDown={(event) => {
-								if (event.key === "Escape") {
-									event.preventDefault()
-									setPendingCreation(null)
-									return
-								}
-
-								if (event.key === "Enter") {
-									event.preventDefault()
-									void commitPendingCreation(event.currentTarget.value)
-								}
-							}}
-						/>
-					</div>
-				)}
-
-				{files.map((fileEntry) => {
-					const active = selectedPath === fileEntry.path
-
-					return (
-						<div
-							key={fileEntry.path}
-							className={`tree-row ${active ? "active" : ""}`}
-							style={{ paddingLeft: `${8 + depth * 14}px` }}
-						>
-							<span className="tree-spacer" aria-hidden="true" />
-							<button
-								type="button"
-								className="tree-entry file"
-								onClick={() => selectPath(fileEntry.path)}
-							>
-								{(() => {
-									const FileIcon = getFileIconForPath(fileEntry.path)
-									return <FileIcon size={14} className="inline-icon tree-icon" />
-								})()}
-								{getBaseName(fileEntry.path)}
-							</button>
-						</div>
-					)
-				})}
-			</>
-		)
-	}
-
-	/* ───────── Render ───────── */
+	/* ── Render ── */
 
 	return (
 		<div
 			className={`app-root ${settingsTheme === "light" ? "theme-light" : "theme-dark"}`}
 		>
-			<header className="navbar">
-				<div className="navbar-left">
-					<span className="logo">
-						<Cloud size={14} className="logo-icon" />
-						NimbusCode
-					</span>
-				</div>
-
-				<div className="navbar-right">
-					<span className="active-file-pill">
-						<FileCode2 size={14} className="inline-icon" />
-						{selectedTabLabel}
-					</span>
-					<div
-						className="language-menu"
-						onBlur={(event) => {
-							const related = event.relatedTarget as Node | null
-							if (!event.currentTarget.contains(related)) {
-								setShowSupportedLanguages(false)
-							}
-						}}
-					>
-						<button
-							type="button"
-							className="language-chip"
-							aria-expanded={showSupportedLanguages}
-							onClick={() => {
-								setShowSupportedLanguages((prev) => !prev)
-							}}
-						>
-							{(() => {
-								const LanguageIcon =
-									languageIconByLabel[selectedLanguageLabel] ?? Languages
-								return <LanguageIcon size={14} className="inline-icon" />
-							})()}
-							{selectedLanguageLabel}
-							<ChevronDown size={14} className="inline-icon" />
-						</button>
-						{showSupportedLanguages && (
-							<div className="language-menu-popup">
-								<div className="language-menu-title">Supported Languages</div>
-								<ul className="language-menu-list">
-									{supportedLanguages.map((language) => (
-										<li key={language.label} className="language-menu-item">
-											<span className="language-name">
-												{(() => {
-													const LanguageIcon =
-														languageIconByLabel[language.label] ?? FileCode2
-													return (
-														<LanguageIcon
-															size={14}
-															className="inline-icon"
-														/>
-													)
-												})()}
-												{language.label}
-											</span>
-											<span>{language.extensions.join(", ")}</span>
-										</li>
-									))}
-								</ul>
-							</div>
-						)}
-					</div>
-					<button
-						className="run-btn"
-						type="button"
-						onClick={runCode}
-						disabled={
-							isRunning || !isWorkspaceReady || !selectedFile || !selectedRuntime
-						}
-					>
-						{isRunning ? (
-							<LoaderCircle size={14} className="inline-icon spin" />
-						) : (
-							<Play size={14} className="inline-icon" />
-						)}
-						{isRunning ? "Running..." : "Run"}
-					</button>
-					<button
-						className="settings-btn"
-						type="button"
-						aria-label="Settings"
-						title="Open settings"
-						onClick={openSettingsTab}
-					>
-						<Settings size={14} className="inline-icon" />
-					</button>
-				</div>
-			</header>
+			<Navbar
+				selectedTabLabel={selectedTabLabel}
+				selectedLanguageLabel={selectedLanguageLabel}
+				selectedRuntime={selectedRuntime}
+				selectedFile={selectedFile}
+				isWorkspaceReady={isWorkspaceReady}
+				isRunning={isRunning}
+				showSupportedLanguages={showSupportedLanguages}
+				onToggleSupportedLanguages={() => setShowSupportedLanguages((prev) => !prev)}
+				onHideSupportedLanguages={() => setShowSupportedLanguages(false)}
+				onRun={runCode}
+				onOpenSettings={openSettingsTab}
+			/>
 
 			<Split
 				direction="horizontal"
@@ -2814,51 +581,23 @@ function App() {
 				gutterSize={6}
 				className="workspace-area"
 			>
-				<aside className="explorer-pane">
-					<div className="explorer-header">
-						<span className="explorer-title">
-							<FolderTree size={14} className="inline-icon" />
-							EXPLORER
-						</span>
-						<div className="explorer-actions">
-							<button
-								type="button"
-								className="explorer-btn"
-								onClick={() => {
-									beginCreateEntry("file")
-								}}
-							>
-								<FilePlus2 size={14} className="inline-icon" />
-								+File
-							</button>
-							<button
-								type="button"
-								className="explorer-btn"
-								onClick={() => {
-									beginCreateEntry("folder")
-								}}
-							>
-								<FolderPlus size={14} className="inline-icon" />
-								+Folder
-							</button>
-							<button
-								type="button"
-								className="explorer-btn danger"
-								onClick={() => {
-									void deleteSelected()
-								}}
-								disabled={!selectedPath || selectedPath === "/"}
-							>
-								<Trash2 size={14} className="inline-icon" />
-								Delete
-							</button>
-						</div>
-					</div>
-					<div className="explorer-tree">{renderTree("/", 0)}</div>
-					{workspaceError && (
-						<div className="explorer-error">{workspaceError}</div>
-					)}
-				</aside>
+				<Explorer
+					fileEntries={fileEntries}
+					folderPaths={folderPaths}
+					folderPathSet={folderPathSet}
+					fileByPath={fileByPath}
+					selectedPath={selectedPath}
+					expandedFolders={expandedFolders}
+					pendingCreation={pendingCreation}
+					workspaceError={workspaceError}
+					onSelectPath={selectPath}
+					onToggleFolder={toggleFolder}
+					onBeginCreateFile={() => beginCreateEntry("file")}
+					onBeginCreateFolder={() => beginCreateEntry("folder")}
+					onDeleteSelected={() => void deleteSelected()}
+					onSetPendingCreation={setPendingCreation}
+					onCommitPendingCreation={(value) => void commitPendingCreation(value)}
+				/>
 
 				<div className="main-pane">
 					<Split
@@ -2868,228 +607,36 @@ function App() {
 						gutterSize={6}
 						className="editor-area"
 					>
-						<div className="editor-pane">
-								<div className="editor-tabs" role="tablist" aria-label="Open files">
-									{openTabs.map((path) => {
-										const isActive = activeFilePath === path
-										const tabLabel = getTabLabel(path)
-										const TabIcon = getTabIconForPath(path)
+						<EditorPane
+							openTabs={openTabs}
+							activeFilePath={activeFilePath}
+							selectedFile={selectedFile}
+							isSettingsTabActive={isSettingsTabActive}
+							selectedMonacoTheme={selectedMonacoTheme}
+							selectedEditorLanguage={selectedEditorLanguage}
+							settingsKeybinding={settingsKeybinding}
+							settingsTheme={settingsTheme}
+							settingsCompletionsEnabled={settingsCompletionsEnabled}
+							settingsRelativeLineNumbers={settingsRelativeLineNumbers}
+							editorCursor={editorCursor}
+							editorStats={editorStats}
+							vimMode={vimMode}
+							onTabClick={activateTab}
+							onTabClose={closeTab}
+							onEditorChange={onEditorChange}
+							onEditorMount={handleEditorMount}
+							onChangeKeybinding={setSettingsKeybinding}
+							onChangeTheme={setSettingsTheme}
+							onChangeCompletions={setSettingsCompletionsEnabled}
+							onChangeRelativeLineNumbers={setSettingsRelativeLineNumbers}
+						/>
 
-										return (
-											<div
-											key={path}
-											className={`editor-tab ${isActive ? "active" : ""}`}
-										>
-											<button
-												type="button"
-												className="editor-tab-button"
-												onClick={() => activateTab(path)}
-											>
-												<TabIcon size={14} className="inline-icon" />
-												{tabLabel}
-											</button>
-											<button
-												type="button"
-												className="editor-tab-close"
-												aria-label={`Close ${tabLabel}`}
-												onClick={(event) => {
-													event.stopPropagation()
-													closeTab(path)
-												}}
-											>
-												<X size={13} className="inline-icon" />
-											</button>
-										</div>
-									)
-								})}
-							</div>
-							<div className="editor-content">
-								{isSettingsTabActive ? (
-									<div className="settings-panel">
-										<div className="settings-title">Editor Settings</div>
-										<p className="settings-subtitle">
-											Theme applies to site, editor, and output console. Other
-											controls remain experimental.
-										</p>
-										<div className="settings-group">
-											<label className="settings-label" htmlFor="keybinding-mode">
-												Keybindings
-											</label>
-											<select
-												id="keybinding-mode"
-												className="settings-select"
-												value={settingsKeybinding}
-												onChange={(event) => {
-													setSettingsKeybinding(
-														event.target.value as KeybindingMode,
-													)
-												}}
-											>
-												<option value="default">Default</option>
-												<option value="vim">Vim</option>
-											</select>
-											{settingsKeybinding === "vim" && (
-												<span className="settings-meta">
-													Vim mode: {vimMode === "normal" ? "NORMAL" : "INSERT"}
-												</span>
-											)}
-										</div>
-										<div className="settings-group">
-											<div className="settings-toggle-row">
-												<span className="settings-label">Light theme</span>
-												<label className="settings-switch" htmlFor="theme-toggle">
-													<input
-														id="theme-toggle"
-														type="checkbox"
-														className="settings-switch-input"
-														checked={settingsTheme === "light"}
-														onChange={(event) => {
-															setSettingsTheme(
-																event.target.checked ? "light" : "dark",
-															)
-														}}
-													/>
-													<span
-														className="settings-switch-track"
-														aria-hidden="true"
-													>
-														<span className="settings-switch-thumb" />
-													</span>
-												</label>
-											</div>
-											<span className="settings-meta">
-												{settingsTheme === "light" ? "Light" : "Dark"} selected
-											</span>
-										</div>
-										<div className="settings-group">
-											<div className="settings-toggle-row">
-												<span className="settings-label">Completions</span>
-												<label
-													className="settings-switch"
-													htmlFor="completions-toggle"
-												>
-													<input
-														id="completions-toggle"
-														type="checkbox"
-														className="settings-switch-input"
-														checked={settingsCompletionsEnabled}
-														onChange={(event) => {
-															setSettingsCompletionsEnabled(event.target.checked)
-														}}
-													/>
-													<span
-														className="settings-switch-track"
-														aria-hidden="true"
-													>
-													<span className="settings-switch-thumb" />
-												</span>
-											</label>
-										</div>
-									</div>
-									<div className="settings-group">
-										<div className="settings-toggle-row">
-											<span className="settings-label">
-												Relative line numbers
-											</span>
-											<label
-												className="settings-switch"
-												htmlFor="relative-lines-toggle"
-											>
-												<input
-													id="relative-lines-toggle"
-													type="checkbox"
-													className="settings-switch-input"
-													checked={settingsRelativeLineNumbers}
-													onChange={(event) => {
-														setSettingsRelativeLineNumbers(event.target.checked)
-													}}
-												/>
-												<span
-													className="settings-switch-track"
-													aria-hidden="true"
-												>
-													<span className="settings-switch-thumb" />
-												</span>
-											</label>
-										</div>
-										<span className="settings-meta">
-											{settingsRelativeLineNumbers ? "Enabled" : "Disabled"}
-										</span>
-									</div>
-								</div>
-							) : (
-								<Editor
-										path={selectedFile?.path}
-										height="100%"
-										theme={selectedMonacoTheme}
-										beforeMount={defineMonacoThemes}
-										onMount={handleEditorMount}
-										language={selectedEditorLanguage}
-										value={selectedFile?.content ?? ""}
-										onChange={onEditorChange}
-										options={{
-											readOnly: !selectedFile,
-											fontFamily:
-												'"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
-											fontLigatures: true,
-											lineNumbers: settingsRelativeLineNumbers
-												? "relative"
-												: "on",
-										}}
-									/>
-								)}
-							</div>
-							{!isSettingsTabActive && (
-								<div className="editor-statusbar" aria-live="polite">
-									<div className="editor-status-left">
-										<span>Lines: {editorStats.lines}</span>
-										<span>Words: {editorStats.words}</span>
-										<span>Chars: {editorStats.chars}</span>
-										<span>
-											Ln {editorCursor.lineNumber}, Col {editorCursor.column}
-										</span>
-									</div>
-									{settingsKeybinding === "vim" && (
-										<div className="editor-status-right">
-											<span>[ ---{keybindingModeLabel}--- ]</span>
-										</div>
-									)}
-								</div>
-							)}
-							{!selectedFile && !isSettingsTabActive && (
-								<div className="editor-empty">
-									Select a file in the explorer to open it in a tab.
-								</div>
-							)}
-						</div>
-
-						<div className="console">
-							<div className="console-title-row">
-								<div className="console-title">
-									<TerminalSquare size={14} className="inline-icon" />
-									OUTPUT
-								</div>
-								<button
-									className="console-clear-btn"
-									type="button"
-									onClick={clearTerminal}
-								>
-									<Eraser size={14} className="inline-icon" />
-									Clear
-								</button>
-							</div>
-							<div className="console-terminal">
-								<runno-run
-									key={`${selectedRuntime ?? "python"}-${terminalKey}`}
-									className="runno-runner"
-									runtime={selectedRuntime ?? "python"}
-									style={{ width: "100%", height: "100%" }}
-									ref={(element: HTMLElement | null) => {
-										runnoRef.current = element as RunElement | null
-									}}
-								/>
-							</div>
-						</div>
+						<ConsolePane
+							selectedRuntime={selectedRuntime}
+							terminalKey={terminalKey}
+							runnoRef={runnoRef}
+							onClear={clearTerminal}
+						/>
 					</Split>
 				</div>
 			</Split>
