@@ -65,14 +65,43 @@ export function useWorkspace(): UseWorkspaceReturn {
 	const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
 	const [entries, setEntries] = useState<WorkspaceEntry[]>([])
-	const [selectedPath, setSelectedPath] = useState<string | null>(null)
-	const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-	const [openTabs, setOpenTabs] = useState<string[]>([])
-	const [expandedFolders, setExpandedFolders] = useState<string[]>(["/"]);
+	const [selectedPath, setSelectedPath] = useState<string | null>(() => localStorage.getItem("nimbus_selectedPath"))
+	const [activeFilePath, setActiveFilePath] = useState<string | null>(() => localStorage.getItem("nimbus_activeFilePath"))
+	const [openTabs, setOpenTabs] = useState<string[]>(() => {
+		try {
+			const saved = localStorage.getItem("nimbus_openTabs")
+			return saved ? JSON.parse(saved) : []
+		} catch { return [] }
+	})
+	const [expandedFolders, setExpandedFolders] = useState<string[]>(() => {
+		try {
+			const saved = localStorage.getItem("nimbus_expandedFolders")
+			return saved ? JSON.parse(saved) : ["/"]
+		} catch { return ["/"] }
+	});
 	const [pendingCreation, setPendingCreation] = useState<PendingCreation | null>(null)
 	const [pendingRename, setPendingRename] = useState<PendingRename | null>(null)
 	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
 	const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
+
+	/* ── State persistence ── */
+	useEffect(() => {
+		if (selectedPath !== null) localStorage.setItem("nimbus_selectedPath", selectedPath)
+		else localStorage.removeItem("nimbus_selectedPath")
+	}, [selectedPath])
+
+	useEffect(() => {
+		if (activeFilePath !== null) localStorage.setItem("nimbus_activeFilePath", activeFilePath)
+		else localStorage.removeItem("nimbus_activeFilePath")
+	}, [activeFilePath])
+
+	useEffect(() => {
+		localStorage.setItem("nimbus_openTabs", JSON.stringify(openTabs))
+	}, [openTabs])
+
+	useEffect(() => {
+		localStorage.setItem("nimbus_expandedFolders", JSON.stringify(expandedFolders))
+	}, [expandedFolders])
 
 	/* ── Derived ── */
 
@@ -109,12 +138,17 @@ export function useWorkspace(): UseWorkspaceReturn {
 
 				if (cancelled) return
 
-				const firstFilePath = source.find(isFileEntry)?.path ?? null
 				setEntries(sortWorkspaceEntries(source))
-				setSelectedPath(firstFilePath)
-				setActiveFilePath(firstFilePath)
-				setOpenTabs(firstFilePath ? [firstFilePath] : [])
-				setExpandedFolders(["/"])
+				
+				// Only initialize state if we don't have persisted UI state
+				const hasPersistedState = localStorage.getItem("nimbus_openTabs") !== null
+				if (!hasPersistedState) {
+					const firstFilePath = source.find(isFileEntry)?.path ?? null
+					setSelectedPath(firstFilePath)
+					setActiveFilePath(firstFilePath)
+					setOpenTabs(firstFilePath ? [firstFilePath] : [])
+					setExpandedFolders(["/"])
+				}
 				setWorkspaceError(null)
 				setIsWorkspaceReady(true)
 			} catch (error) {

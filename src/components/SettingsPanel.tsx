@@ -1,4 +1,5 @@
-import type { KeybindingMode, ThemeMode, VimInteractionMode } from "../lib/types"
+import type { KeybindingMode, ThemeMode, VimInteractionMode, LSPState } from "../lib/types"
+import { LSPManager } from "./LSPManager"
 
 interface SettingsPanelProps {
 	settingsKeybinding: KeybindingMode
@@ -10,6 +11,11 @@ interface SettingsPanelProps {
 	onChangeTheme: (theme: ThemeMode) => void
 	onChangeCompletions: (enabled: boolean) => void
 	onChangeRelativeLineNumbers: (enabled: boolean) => void
+
+	lsps: LSPState[]
+	onDownloadLSP: (id: string) => void
+	onToggleLSP: (id: string, enabled: boolean) => void
+	onDeleteLSP: (id: string) => void
 }
 
 export function SettingsPanel({
@@ -22,6 +28,10 @@ export function SettingsPanel({
 	onChangeTheme,
 	onChangeCompletions,
 	onChangeRelativeLineNumbers,
+	lsps,
+	onDownloadLSP,
+	onToggleLSP,
+	onDeleteLSP,
 }: SettingsPanelProps) {
 	return (
 		<div className="settings-panel">
@@ -116,6 +126,13 @@ export function SettingsPanel({
 					{settingsRelativeLineNumbers ? "Enabled" : "Disabled"}
 				</span>
 			</div>
+
+			<LSPManager
+				lsps={lsps}
+				onDownload={onDownloadLSP}
+				onToggle={onToggleLSP}
+				onDelete={onDeleteLSP}
+			/>
 		</div>
 	)
 }

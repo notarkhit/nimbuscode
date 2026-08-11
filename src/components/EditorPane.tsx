@@ -25,6 +25,10 @@ interface EditorPaneProps {
 	onChangeTheme: (theme: ThemeMode) => void
 	onChangeCompletions: (enabled: boolean) => void
 	onChangeRelativeLineNumbers: (enabled: boolean) => void
+	lsps: import("../lib/types").LSPState[]
+	onDownloadLSP: (id: string) => void
+	onToggleLSP: (id: string, enabled: boolean) => void
+	onDeleteLSP: (id: string) => void
 }
 
 export function EditorPane({
@@ -38,6 +42,7 @@ export function EditorPane({
 	settingsTheme,
 	settingsCompletionsEnabled,
 	settingsRelativeLineNumbers,
+	lsps,
 	onTabClick,
 	onTabClose,
 	onEditorChange,
@@ -46,6 +51,9 @@ export function EditorPane({
 	onChangeTheme,
 	onChangeCompletions,
 	onChangeRelativeLineNumbers,
+	onDownloadLSP,
+	onToggleLSP,
+	onDeleteLSP,
 }: EditorPaneProps) {
 
 	return (
@@ -92,11 +100,15 @@ export function EditorPane({
 						settingsTheme={settingsTheme}
 						settingsCompletionsEnabled={settingsCompletionsEnabled}
 						settingsRelativeLineNumbers={settingsRelativeLineNumbers}
-						vimMode="insert" // Settings pane doesn't really need live vim mode, we can hardcode for UI or remove
+						vimMode="insert"
 						onChangeKeybinding={onChangeKeybinding}
 						onChangeTheme={onChangeTheme}
 						onChangeCompletions={onChangeCompletions}
 						onChangeRelativeLineNumbers={onChangeRelativeLineNumbers}
+						lsps={lsps}
+						onDownloadLSP={onDownloadLSP}
+						onToggleLSP={onToggleLSP}
+						onDeleteLSP={onDeleteLSP}
 					/>
 				) : (
 					<Editor

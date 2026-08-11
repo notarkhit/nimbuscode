@@ -41,6 +41,7 @@ import { SETTINGS_TAB_ID } from "./lib/constants"
 import {
 	registerSimpleLanguageCompletions,
 } from "./lib/completions"
+import { useLSPManager } from "./lib/useLSPManager"
 import type { KeybindingMode, ThemeMode, CompiledRuntime, EditorCursorPosition } from "./lib/types"
 import "./App.css"
 
@@ -66,16 +67,23 @@ function App() {
 	)
 
 	/* ── Run state ── */
-	const [activeActivityView, setActiveActivityView] = useState<"explorer" | "settings" | null>("explorer")
+	const [activeActivityView, setActiveActivityView] = useState<"explorer" | "settings" | null>(() => {
+		return (localStorage.getItem("nimbus_activeActivityView") as "explorer" | "settings" | null) ?? "explorer"
+	})
+
+	useEffect(() => {
+		if (activeActivityView !== null) localStorage.setItem("nimbus_activeActivityView", activeActivityView)
+		else localStorage.removeItem("nimbus_activeActivityView")
+	}, [activeActivityView])
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
 	const [isRunning, setIsRunning] = useState(false)
-
-	/* ── Editor cursor state ── */
 	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
 		lineNumber: 1,
 		column: 1,
 	})
+
+	const { lsps, downloadLSP, toggleLSP, deleteLSP } = useLSPManager()
 
 	/* ── Workspace hook ── */
 	const workspace = useWorkspace()
@@ -543,7 +551,6 @@ function App() {
 					activeView={activeActivityView}
 					onViewChange={setActiveActivityView}
 					onSettingsClick={() => {
-						setActiveActivityView("settings")
 						openSettingsTab()
 					}}
 				/>
@@ -603,6 +610,7 @@ function App() {
 								settingsTheme={settingsTheme}
 								settingsCompletionsEnabled={settingsCompletionsEnabled}
 								settingsRelativeLineNumbers={settingsRelativeLineNumbers}
+								lsps={lsps}
 								onTabClick={activateTab}
 								onTabClose={closeTab}
 								onEditorChange={onEditorChange}
@@ -611,6 +619,9 @@ function App() {
 								onChangeTheme={setSettingsTheme}
 								onChangeCompletions={setSettingsCompletionsEnabled}
 								onChangeRelativeLineNumbers={setSettingsRelativeLineNumbers}
+								onDownloadLSP={downloadLSP}
+								onToggleLSP={toggleLSP}
+								onDeleteLSP={deleteLSP}
 							/>
 
 							<ConsolePane

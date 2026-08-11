@@ -52,3 +52,14 @@ export type BinaryCommand = {
 	env?: Record<string, string>
 	baseFSURL?: string
 }
+
+export type LSPStatus = "not_downloaded" | "downloading" | "ready"
+
+export interface LSPState {
+	id: string
+	name: string
+	language: string
+	status: LSPStatus
+	enabled: boolean
+	sizeEstimate: string
+}
