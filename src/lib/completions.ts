@@ -136,8 +136,11 @@ export const toMonacoCompletionKind = (monaco: Monaco, kind: SimpleCompletionKin
 
 export const registerSimpleLanguageCompletions = (
 	monaco: Monaco,
+	excludeLanguages: string[] = []
 ): Array<{ dispose: () => void }> =>
-	SIMPLE_LANGUAGE_COMPLETIONS.map((config) =>
+	SIMPLE_LANGUAGE_COMPLETIONS
+		.filter((config) => !excludeLanguages.includes(config.language))
+		.map((config) =>
 		monaco.languages.registerCompletionItemProvider(config.language, {
 			triggerCharacters: config.triggerCharacters,
 			provideCompletionItems(

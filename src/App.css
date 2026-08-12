@@ -265,11 +265,40 @@ body,
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
+	border-radius: 4px;
 }
 
 .run-btn:hover {
 	background: #89b4fa;
 	border-color: #89b4fa;
+}
+
+.run-btn-group {
+	display: inline-flex;
+	border-radius: 4px;
+	overflow: hidden;
+	border: 1px solid var(--tn-red, #f38ba8);
+}
+
+.run-btn-group .run-btn {
+	border: none;
+	border-radius: 0;
+}
+
+.run-btn-group .running-state {
+	cursor: default;
+	background: var(--tn-bg-dark);
+	color: var(--tn-red, #f38ba8);
+	border-right: 1px solid var(--tn-red, #f38ba8);
+}
+
+.run-btn-group .terminate-btn {
+	background: var(--tn-red, #f38ba8);
+	color: var(--tn-bg-dark);
+}
+
+.run-btn-group .terminate-btn:hover {
+	background: #eba0ac;
 }
 
 .settings-btn {

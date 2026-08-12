@@ -42,6 +42,7 @@ import {
 	registerSimpleLanguageCompletions,
 } from "./lib/completions"
 import { useLSPManager } from "./lib/useLSPManager"
+import { LSPClient } from "./lib/lspClient"
 import type { KeybindingMode, ThemeMode, CompiledRuntime, EditorCursorPosition } from "./lib/types"
 import "./App.css"
 
@@ -53,6 +54,7 @@ function App() {
 
 
 	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
+	const lspClientRef = useRef<LSPClient | null>(null)
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
 	const runCodeRef = useRef<() => void>(() => {})
 
@@ -78,6 +80,7 @@ function App() {
 	const [terminalKey, setTerminalKey] = useState(0)
 	const [runError, setRunError] = useState<string | null>(null)
 	const [isRunning, setIsRunning] = useState(false)
+	const [isEditorReady, setIsEditorReady] = useState(false)
 	const [editorCursor, setEditorCursor] = useState<EditorCursorPosition>({
 		lineNumber: 1,
 		column: 1,
@@ -180,8 +183,21 @@ function App() {
 			monacoRef.current = monacoOverride
 		}
 		disposeSimpleCompletionProviders()
+		
+		// If Pyright LSP is enabled and ready, do NOT register the simple python completions
+		// to avoid duplicate suggestions.
+		const isPyrightEnabled = lsps.find((l) => l.id === "pyright" && l.enabled && l.status === "ready")
+		
 		if (!enabled || !monacoRef.current) return
-		completionDisposablesRef.current = registerSimpleLanguageCompletions(monacoRef.current)
+		
+		const excludeLanguages = isPyrightEnabled ? ["python"] : []
+		
+		// Pass knowledge of which heavy LSPs are enabled to avoid registering lightweight providers for them
+		const disposables = registerSimpleLanguageCompletions(monacoRef.current, excludeLanguages)
+		
+		// Hacky way to filter out simple providers if true LSP is active
+		// For a real app, `registerSimpleLanguageCompletions` would accept an `excludeList`.
+		completionDisposablesRef.current = disposables
 	}
 
 	/* ── Editor mount ── */
@@ -208,14 +224,14 @@ function App() {
 			})
 		}
 
-		const cursorDisposable = editor.onDidChangeCursorPosition((event: {
-			position: { lineNumber: number; column: number }
-		}) => {
+		const cursorDisposable = editor.onDidChangeCursorPosition((e: any) => {
 			setEditorCursor({
-				lineNumber: event.position.lineNumber,
-				column: event.position.column,
+				lineNumber: e.position.lineNumber,
+				column: e.position.column,
 			})
 		})
+
+		setIsEditorReady(true)
 
 		editor.onDidDispose(() => {
 			cursorDisposable.dispose()
@@ -229,9 +245,57 @@ function App() {
 	/* ── Terminal helpers ── */
 
 	const fitRunnoTerminal = () => {
-		const terminal = runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as
-			| (HTMLElement & { onResize?: () => void }) | null
-		terminal?.onResize?.()
+		const terminal = runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as any
+		if (terminal?.onResize) terminal.onResize()
+
+		if (terminal && !terminal.__backspacePatched) {
+			// Intercept workerHost assignment to inject a true JS line buffer for WASI
+			let _workerHost = terminal.workerHost
+			Object.defineProperty(terminal, "workerHost", {
+				get: () => _workerHost,
+				set: (v) => {
+					if (v && !v.__pushStdinPatched) {
+						const originalPushStdin = v.pushStdin.bind(v)
+						v.__lineBuffer = ""
+						v.pushStdin = async (e: string) => {
+							if (e === "\r" || e === "\n" || e === "\r\n") {
+								const line = v.__lineBuffer + "\n"
+								v.__lineBuffer = ""
+								return originalPushStdin(line)
+							} else if (e === "\x7f" || e === "\b") {
+								if (v.__lineBuffer.length > 0) {
+									v.__lineBuffer = v.__lineBuffer.slice(0, -1)
+								}
+								return
+							} else {
+								v.__lineBuffer += e
+								return
+							}
+						}
+						v.__pushStdinPatched = true
+					}
+					_workerHost = v
+				},
+				configurable: true,
+			})
+
+			// Intercept Backspace to visually erase and trigger the line buffer backspace
+			if (terminal.terminal) {
+				terminal.terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+					if (e.type === "keydown" && e.key === "Backspace") {
+						e.preventDefault()
+						// Only visually erase if we actually have characters in the buffer (don't erase prompts)
+						if (terminal.workerHost && terminal.workerHost.__lineBuffer && terminal.workerHost.__lineBuffer.length > 0) {
+							terminal.terminal?.write("\b \b") // visually erase
+							terminal.workerHost.pushStdin("\b")
+						}
+						return false
+					}
+					return true
+				})
+			}
+			terminal.__backspacePatched = true
+		}
 	}
 
 	const getTerminalWriter = () => {
@@ -535,6 +599,31 @@ function App() {
 	}, [])
 
 	/* ── Render ── */
+
+	// Setup True LSP Lifecycle
+	useEffect(() => {
+		const pyrightLSP = lsps.find(l => l.id === "pyright" && l.status === "ready" && l.enabled)
+		const monaco = monacoRef.current
+		const editor = editorRef.current
+
+		if (pyrightLSP && monaco && editor) {
+			if (!lspClientRef.current) {
+				const worker = new Worker(new URL("./workers/python-lsp.worker.ts", import.meta.url), { type: "module" })
+				lspClientRef.current = new LSPClient(worker, monaco, "python")
+			}
+			const model = editor.getModel()
+			if (model) lspClientRef.current.attachModel(model)
+		} else {
+			if (lspClientRef.current) {
+				lspClientRef.current.dispose()
+				lspClientRef.current = null
+			}
+		}
+
+		return () => {
+			// Unmount cleanup will happen eventually
+		}
+	}, [lsps, activeFilePath, terminalKey, isEditorReady]) // trigger on LSP state change, editor file change, or editor mount
 
 	return (
 		<div
