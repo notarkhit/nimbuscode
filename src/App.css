@@ -255,9 +255,9 @@ body,
 }
 
 .run-btn {
-	background: var(--tn-blue);
-	color: var(--tn-bg-dark);
-	border: 1px solid var(--tn-blue);
+	background: transparent;
+	color: var(--tn-blue);
+	border: none;
 	padding: 5px 10px;
 	font-size: 13px;
 	font-weight: 600;
@@ -269,36 +269,34 @@ body,
 }
 
 .run-btn:hover {
-	background: #89b4fa;
-	border-color: #89b4fa;
+	background: var(--tn-surface-2);
 }
 
 .run-btn-group {
 	display: inline-flex;
+	align-items: center;
 	border-radius: 4px;
 	overflow: hidden;
-	border: 1px solid var(--tn-red, #f38ba8);
+	border: none;
 }
 
 .run-btn-group .run-btn {
-	border: none;
-	border-radius: 0;
+	border-radius: 4px;
 }
 
 .run-btn-group .running-state {
 	cursor: default;
-	background: var(--tn-bg-dark);
-	color: var(--tn-red, #f38ba8);
-	border-right: 1px solid var(--tn-red, #f38ba8);
+	background: transparent;
+	color: var(--tn-blue);
 }
 
 .run-btn-group .terminate-btn {
-	background: var(--tn-red, #f38ba8);
-	color: var(--tn-bg-dark);
+	background: transparent;
+	color: var(--tn-red, #f38ba8);
 }
 
 .run-btn-group .terminate-btn:hover {
-	background: #eba0ac;
+	background: var(--tn-surface-2);
 }
 
 .settings-btn {
@@ -329,9 +327,14 @@ body,
 
 /* ───────── Workspace ───────── */
 
-.workspace-area { flex: 1; width: 100%; min-width: 0; min-height: 0; }
+.workspace-area {
+	flex: 1;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+}
 
-.workspace-area > * {
+.workspace-area>* {
 	min-width: 0;
 	min-height: 0;
 }
@@ -355,7 +358,7 @@ body,
 	height: 100%;
 }
 
-.editor-area > * {
+.editor-area>* {
 	min-width: 0;
 	min-height: 0;
 }
@@ -438,6 +441,17 @@ body,
 .editor-tab-close:hover {
 	background: var(--tn-surface-2);
 	color: var(--tn-text);
+}
+
+.editor-tab-spacer {
+	flex: 1;
+	min-width: 0;
+}
+
+.editor-tab-actions {
+	display: flex;
+	align-items: center;
+	padding: 0 8px;
 }
 
 .editor-content {
@@ -556,15 +570,15 @@ body,
 	transition: transform 0.2s ease;
 }
 
-.settings-switch-input:checked + .settings-switch-track {
+.settings-switch-input:checked+.settings-switch-track {
 	background: var(--tn-blue);
 }
 
-.settings-switch-input:checked + .settings-switch-track .settings-switch-thumb {
+.settings-switch-input:checked+.settings-switch-track .settings-switch-thumb {
 	transform: translateX(16px);
 }
 
-.settings-switch-input:focus-visible + .settings-switch-track {
+.settings-switch-input:focus-visible+.settings-switch-track {
 	outline: 2px solid var(--tn-cyan);
 	outline-offset: 2px;
 }
@@ -584,9 +598,10 @@ body,
 
 .explorer-header {
 	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	padding: 10px 8px;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
 	border-bottom: 1px solid var(--tn-border);
 }
 
@@ -602,41 +617,42 @@ body,
 
 .explorer-actions {
 	display: flex;
-	gap: 6px;
-	flex-wrap: wrap;
+	gap: 2px;
 }
 
 .explorer-btn {
-	background: var(--tn-surface);
-	color: var(--tn-text);
-	border: 1px solid var(--tn-border);
-	font-size: 12px;
-	padding: 3px 6px;
+	background: transparent;
+	color: var(--tn-muted);
+	border: none;
+	font-size: 14px;
+	padding: 4px;
+	border-radius: 4px;
 	cursor: pointer;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
+	justify-content: center;
 }
 
 .explorer-btn:hover {
 	background: var(--tn-surface-2);
+	color: var(--tn-text);
 }
 
 .explorer-btn.danger {
-	border-color: #8f4e66;
-	color: #f4b8c9;
+	color: var(--tn-muted);
+}
+
+.explorer-btn.danger:hover {
+	color: var(--tn-red, #f38ba8);
 }
 
 .ide-root.theme-light .explorer-btn.danger {
-	background: #f2d7de;
-	border-color: #b42346;
-	color: #7a102b;
+	color: var(--tn-muted);
 }
 
 .ide-root.theme-light .explorer-btn.danger:hover {
 	background: #edc6d1;
-	border-color: #9f1d3e;
-	color: #661024;
+	color: #9f1d3e;
 }
 
 .explorer-tree {
@@ -842,6 +858,7 @@ runno-terminal {
 	from {
 		transform: rotate(0deg);
 	}
+
 	to {
 		transform: rotate(360deg);
 	}
@@ -930,7 +947,8 @@ runno-terminal {
 	user-select: none;
 }
 
-.status-bar-left, .status-bar-right {
+.status-bar-left,
+.status-bar-right {
 	display: flex;
 	align-items: center;
 	gap: 16px;
@@ -946,6 +964,7 @@ runno-terminal {
 	color: var(--tn-purple);
 	font-weight: bold;
 }
+
 .status-item.vim-mode.insert {
 	color: var(--tn-blue);
 	font-weight: bold;
@@ -987,6 +1006,7 @@ runno-terminal {
 	align-items: center;
 	padding-right: 8px;
 }
+
 .panel-action-btn {
 	background: none;
 	border: none;
@@ -997,6 +1017,7 @@ runno-terminal {
 	align-items: center;
 	border-radius: 4px;
 }
+
 .panel-action-btn:hover {
 	color: var(--tn-text);
 	background: var(--tn-surface-2);

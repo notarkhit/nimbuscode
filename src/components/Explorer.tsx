@@ -266,17 +266,17 @@ export function Explorer(props: ExplorerProps) {
 						type="button"
 						className="explorer-btn"
 						onClick={onBeginCreateFile}
+						title="New File"
 					>
 						<FilePlus2 size={14} className="inline-icon" />
-						+File
 					</button>
 					<button
 						type="button"
 						className="explorer-btn"
 						onClick={onBeginCreateFolder}
+						title="New Folder"
 					>
 						<FolderPlus size={14} className="inline-icon" />
-						+Folder
 					</button>
 					<button
 						type="button"
@@ -286,16 +286,15 @@ export function Explorer(props: ExplorerProps) {
 						title="Rename selected (F2)"
 					>
 						<Pencil size={14} className="inline-icon" />
-						Rename
 					</button>
 					<button
 						type="button"
 						className="explorer-btn danger"
 						onClick={onDeleteSelected}
 						disabled={!selectedPath || selectedPath === "/"}
+						title="Delete selected"
 					>
 						<Trash2 size={14} className="inline-icon" />
-						Delete
 					</button>
 				</div>
 			</div>

@@ -1,5 +1,5 @@
 import Editor, { type Monaco } from "@monaco-editor/react"
-import { X } from "lucide-react"
+import { X, Play, LoaderCircle } from "lucide-react"
 import type { WorkspaceFileEntry } from "../fileStore"
 import type { KeybindingMode, ThemeMode } from "../lib/types"
 import { getTabLabel, getTabIconForPath } from "../lib/helpers"
@@ -29,6 +29,10 @@ interface EditorPaneProps {
 	onDownloadLSP: (id: string) => void
 	onToggleLSP: (id: string, enabled: boolean) => void
 	onDeleteLSP: (id: string) => void
+	onRun?: () => void
+	onStop?: () => void
+	isRunning?: boolean
+	isRunDisabled?: boolean
 }
 
 export function EditorPane({
@@ -54,6 +58,10 @@ export function EditorPane({
 	onDownloadLSP,
 	onToggleLSP,
 	onDeleteLSP,
+	onRun,
+	onStop,
+	isRunning,
+	isRunDisabled,
 }: EditorPaneProps) {
 
 	return (
@@ -90,6 +98,37 @@ export function EditorPane({
 					)
 				})}
 				<div className="editor-tab-spacer" />
+				{onRun && (
+					<div className="editor-tab-actions" style={{ padding: '0 8px', display: 'flex', alignItems: 'center' }}>
+						{isRunning ? (
+							<div className="run-btn-group">
+								<div className="run-btn running-state">
+									<LoaderCircle size={14} className="inline-icon spin" />
+									Running
+								</div>
+								<button
+									type="button"
+									className="run-btn terminate-btn"
+									onClick={onStop}
+									title="Terminate"
+								>
+									<X size={14} className="inline-icon" />
+								</button>
+							</div>
+						) : (
+							<button
+								type="button"
+								className="run-btn"
+								onClick={onRun}
+								disabled={isRunDisabled}
+								title="Run (Ctrl+Enter)"
+							>
+								<Play size={14} className="inline-icon" />
+								Run
+							</button>
+						)}
+					</div>
+				)}
 			</div>
 
 			{/* Editor content */}

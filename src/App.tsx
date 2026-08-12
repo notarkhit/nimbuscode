@@ -56,7 +56,7 @@ function App() {
 	const editorRef = useRef<Monaco["editor"]["IStandaloneCodeEditor"] | null>(null)
 	const lspClientRef = useRef<LSPClient | null>(null)
 	const completionDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
-	const runCodeRef = useRef<() => void>(() => {})
+	const runCodeRef = useRef<() => void>(() => { })
 
 	/* ── Settings state ── */
 	const [settingsKeybinding, setSettingsKeybinding] =
@@ -183,18 +183,18 @@ function App() {
 			monacoRef.current = monacoOverride
 		}
 		disposeSimpleCompletionProviders()
-		
+
 		// If Pyright LSP is enabled and ready, do NOT register the simple python completions
 		// to avoid duplicate suggestions.
 		const isPyrightEnabled = lsps.find((l) => l.id === "pyright" && l.enabled && l.status === "ready")
-		
+
 		if (!enabled || !monacoRef.current) return
-		
+
 		const excludeLanguages = isPyrightEnabled ? ["python"] : []
-		
+
 		// Pass knowledge of which heavy LSPs are enabled to avoid registering lightweight providers for them
 		const disposables = registerSimpleLanguageCompletions(monacoRef.current, excludeLanguages)
-		
+
 		// Hacky way to filter out simple providers if true LSP is active
 		// For a real app, `registerSimpleLanguageCompletions` would accept an `excludeList`.
 		completionDisposablesRef.current = disposables
@@ -310,20 +310,20 @@ function App() {
 
 	const getInteractiveRunTerminal = () =>
 		runnoRef.current?.shadowRoot?.querySelector("runno-terminal") as
-			| (HTMLElement & {
-					run: (
-						binaryPath: string,
-						binaryName: string,
-						fs: WASIFS,
-						args: string[],
-						env: Record<string, string>,
-					) => Promise<{
-						resultType: "complete" | "crash" | "terminated" | "timeout"
-						exitCode?: number
-						error?: { message: string }
-					}>
-				})
-			| null
+		| (HTMLElement & {
+			run: (
+				binaryPath: string,
+				binaryName: string,
+				fs: WASIFS,
+				args: string[],
+				env: Record<string, string>,
+			) => Promise<{
+				resultType: "complete" | "crash" | "terminated" | "timeout"
+				exitCode?: number
+				error?: { message: string }
+			}>
+		})
+		| null
 
 	/* ── Compiled code runner (C / C++) ── */
 
@@ -464,10 +464,10 @@ function App() {
 			const codeToRun =
 				selectedRuntime === "sqlite"
 					? (() => {
-							if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
-							const safeName = escapeSqlLiteral("friend")
-							return selectedFile.content.replaceAll("{{name}}", safeName)
-						})()
+						if (!selectedFile.content.includes("{{name}}")) return selectedFile.content
+						const safeName = escapeSqlLiteral("friend")
+						return selectedFile.content.replaceAll("{{name}}", safeName)
+					})()
 					: selectedFile.content
 
 			await runnoRef.current.interactiveRunCode(selectedRuntime, codeToRun)
@@ -629,11 +629,7 @@ function App() {
 		<div
 			className={`ide-root theme-${settingsTheme}`}
 		>
-			<TitleBar
-				onRun={runCode}
-				isRunning={isRunning}
-				isDisabled={isRunning || !selectedFile || !selectedRuntime}
-			/>
+			<TitleBar />
 
 			<div className="ide-main">
 				<ActivityBar
@@ -711,6 +707,10 @@ function App() {
 								onDownloadLSP={downloadLSP}
 								onToggleLSP={toggleLSP}
 								onDeleteLSP={deleteLSP}
+								onRun={runCode}
+								onStop={stopTerminal}
+								isRunning={isRunning}
+								isRunDisabled={isRunning || !selectedFile || !selectedRuntime}
 							/>
 
 							<ConsolePane
